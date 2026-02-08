@@ -15,15 +15,11 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 
 # لیست کانال‌های هدف
 CHANNELS = [
-    'napsternetv',
-    'v2ray_free_conf',
-    'V2ray_Alpha',
-    'V2Ray_Vpn_Config',
-    'v2ray_outline_config'
+    'napsternetv'
 ]
 
-SEARCH_LIMIT = 15 
-TOTAL_FINAL_COUNT = 80
+SEARCH_LIMIT = 300 
+TOTAL_FINAL_COUNT = 100
 
 def is_server_alive(host, port):
     try:
