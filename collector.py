@@ -8,9 +8,9 @@ from telethon.sessions import StringSession
 
 # --- دریافت اطلاعات از GitHub Secrets ---
 try:
-    API_ID = int(os.environ["API_ID"])
-    API_HASH = os.environ["API_HASH"]
-    SESSION_STRING = os.environ["SESSION_STRING"]
+    API_ID = int(os.environ["34146126"])
+    API_HASH = os.environ["6f3350e049ef37676b729241f5bc8c5e"]
+    SESSION_STRING = os.environ["1BJWap1sBu1UWJfb7cqBi3CecVPgf22UHnUDZ5lldvPwcPsOQZ9LLEfFdkZbvd8bNn_vOkZZFw66NJWaJQsrNQCs1InUqyCR-7fvyZEGRyI6FlhP4LvJUw44cpuJeBPWJ7HZMmmZhG63WIgpVq1qDx4c8oiqIVxJJoHvYUh2Lx2BFBcucBcUUgYXiVN4RRlCtark9qn5NsHLQoL5KkL9wjYi8ZlvE9RHWyr2nY4vGT7HJBb2nTZxYCZ0WAIMjaIQjDhTY8axhqDz34fj6VyrPjHDpA0NFc1Tr9Y4NtpLaHJhCahPRhjYYjrFKlb4vVFyLKQ6cl-0EN3H-ppGaJtRhS6ehN4JHs5Y="]
 except KeyError:
     print("❌ خطا: متغیرهای محیطی (Secrets) تنظیم نشده‌اند!")
     exit(1)
