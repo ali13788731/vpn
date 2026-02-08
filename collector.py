@@ -65,7 +65,7 @@ async def main():
         for channel in CHANNELS:
             try:
                 print(f"📥 Scanning {channel}...")
-                async for message in client.iter_messages(channel, limit=100):
+                async for message in client.iter_messages(channel, limit=200):
                     if message.text:
                         found = re.findall(PROTOCOLS, message.text, re.IGNORECASE)
                         for c in found:
