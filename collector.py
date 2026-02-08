@@ -5,84 +5,73 @@ import base64
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-# --- دریافت اطلاعات (با مدیریت هوشمند متغیرهای خالی) ---
-
-# تابع کمکی برای گرفتن مقدار یا استفاده از پیش‌فرض
+# --- تنظیمات ---
+# اگر سکرت ست نشده باشد، از این مقادیر استفاده می‌کند
 def get_env(key, default):
-    value = os.environ.get(key)
-    # اگر مقدار وجود داشت و خالی نبود، آن را برگردان، وگرنه پیش‌فرض را بده
-    if value and value.strip():
-        return value
-    return default
+    val = os.environ.get(key)
+    return val if val and val.strip() else default
 
-# دریافت مقادیر
-try:
-    API_ID = int(get_env('TELEGRAM_API_ID', 34146126))
-except ValueError:
-    API_ID = 34146126 # محض اطمینان اگر مقدار غیرعددی وارد شد
-
+API_ID = int(get_env('TELEGRAM_API_ID', '34146126'))
 API_HASH = get_env('TELEGRAM_API_HASH', '6f3350e049ef37676b729241f5bc8c5e')
-SESSION_STRING = get_env('TELEGRAM_SESSION', 'YOUR_SESSION_STRING_HERE')
+SESSION_STRING = get_env('TELEGRAM_SESSION', '1BJWap1sBu1UWJfb7cqBi3CecVPgf22UHnUDZ5lldvPwcPsOQZ9LLEfFdkZbvd8bNn_vOkZZFw66NJWaJQsrNQCs1InUqyCR-7fvyZEGRyI6FlhP4LvJUw44cpuJeBPWJ7HZMmmZhG63WIgpVq1qDx4c8oiqIVxJJoHvYUh2Lx2BFBcucBcUUgYXiVN4RRlCtark9qn5NsHLQoL5KkL9wjYi8ZlvE9RHWyr2nY4vGT7HJBb2nTZxYCZ0WAIMjaIQjDhTY8axhqDz34fj6VyrPjHDpA0NFc1Tr9Y4NtpLaHJhCahPRhjYYjrFKlb4vVFyLKQ6cl-0EN3H-ppGaJtRhS6ehN4JHs5Y=') # سشن باید حتما از سکرت خوانده شود
 
-CHANNELS = [
-    'napsternetv', 'v2ray_free_conf', 'V2ray_Alpha', 
-    'V2Ray_Vpn_Config', 'iranconfigs_ir', 'v2rayng_org',
-    'VmessProtocol', 'FreeVmessAndVless', 'PrivateVPNs', 'v2rayng_vpn'
-]
+CHANNEL_TARGET = 'napsternetv'
+MESSAGE_LIMIT = 300
+CONFIG_LIMIT = 100
 
+# ریجکس درخواستی شما
 PROTOCOLS = r'(vless|vmess|trojan|ss|hysteria2|tuic)://[a-zA-Z0-9\-_@.:?=&%#~*+/]+'
 
 async def main():
-    print("🚀 Running Collector...")
-    
-    # بررسی اینکه آیا سشن معتبر است یا خیر
-    if SESSION_STRING == 'YOUR_SESSION_STRING_HERE' or not SESSION_STRING:
-        print("❌ Error: SESSION_STRING is missing or invalid.")
-        # اینجا برنامه را متوقف نمی‌کنیم تا شاید در آینده لاجیک دیگری اضافه شود، اما هشدار می‌دهیم
+    print("🚀 Starting Collector...")
+
+    # اگر سشن خالی بود ارور بده و قطع کن
+    if not SESSION_STRING:
+        print("❌ Error: TELEGRAM_SESSION is missing in GitHub Secrets.")
         return
 
     try:
         async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH) as client:
-            raw_configs = set()
+            collected_configs = []
+            unique_check = set()
             
-            for channel in CHANNELS:
-                try:
-                    print(f"📥 Scanning {channel}...")
-                    async for message in client.iter_messages(channel, limit=100):
-                        if message.text:
-                            found = re.findall(PROTOCOLS, message.text, re.IGNORECASE)
-                            for c in found:
-                                clean_conf = c.replace('\u200e', '').strip()
-                                if len(clean_conf) < 2000:
-                                    raw_configs.add(clean_conf)
-                except Exception as e:
-                    print(f"⚠️ Error {channel}: {e}")
-
-            print(f"🔍 Found {len(raw_configs)} unique configs.")
-
-            final_configs = list(raw_configs)
-            prioritized = []
-            others = []
-            for conf in final_configs:
-                if "sni=" in conf or "pbk=" in conf or "fp=" in conf:
-                    prioritized.append(conf)
-                else:
-                    others.append(conf)
+            print(f"📥 Scanning last {MESSAGE_LIMIT} messages from {CHANNEL_TARGET}...")
             
-            final_list = (prioritized + others)[:300]
+            # دریافت پیام‌ها
+            async for message in client.iter_messages(CHANNEL_TARGET, limit=MESSAGE_LIMIT):
+                if message.text:
+                    # پیدا کردن کانفیگ‌ها با ریجکس
+                    found = re.findall(PROTOCOLS, message.text, re.IGNORECASE)
+                    for conf in found:
+                        clean_conf = conf.replace('\u200e', '').strip()
+                        
+                        # جلوگیری از تکراری بودن و چک کردن طول منطقی
+                        if clean_conf not in unique_check and len(clean_conf) < 2000:
+                            unique_check.add(clean_conf)
+                            collected_configs.append(clean_conf)
+                            
+                            # اگر به 100 تا رسیدیم، حلقه را بشکن (برای سرعت بیشتر)
+                            if len(collected_configs) >= CONFIG_LIMIT:
+                                break
+                
+                if len(collected_configs) >= CONFIG_LIMIT:
+                    break
+
+            print(f"🔍 Found {len(collected_configs)} configs.")
+
+            # مطمئن شویم دقیقاً 100 تا (یا کمتر اگر پیدا نشد) خروجی می‌دهیم
+            final_list = collected_configs[:CONFIG_LIMIT]
             final_text = "\n".join(final_list)
+
+            # ذخیره فایل‌ها
+            with open('sub.txt', 'w', encoding='utf-8') as f:
+                f.write(base64.b64encode(final_text.encode('utf-8')).decode('utf-8'))
+                
+            with open('configs.txt', 'w', encoding='utf-8') as f:
+                f.write(final_text)
             
-            try:
-                with open('sub.txt', 'w', encoding='utf-8') as f:
-                    f.write(base64.b64encode(final_text.encode('utf-8')).decode('utf-8'))
-                    
-                with open('configs.txt', 'w', encoding='utf-8') as f:
-                    f.write(final_text)
-                
-                print(f"✅ Done! Saved {len(final_list)} configs.")
-            except Exception as e:
-                print(f"❌ Error saving files: {e}")
-                
+            print(f"✅ Done! Saved {len(final_list)} configs from {CHANNEL_TARGET}.")
+
     except Exception as e:
         print(f"❌ Critical Error: {e}")
 
