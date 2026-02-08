@@ -2,14 +2,15 @@ import asyncio
 import re
 import os
 import base64
-import json
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-# --- اطلاعات اکانت شما (هاردکد شده برای راحتی) ---
-API_ID = 34146126
-API_HASH = '6f3350e049ef37676b729241f5bc8c5e'
-SESSION_STRING = '1BJWap1sBu1UWJfb7cqBi3CecVPgf22UHnUDZ5lldvPwcPsOQZ9LLEfFdkZbvd8bNn_vOkZZFw66NJWaJQsrNQCs1InUqyCR-7fvyZEGRyI6FlhP4LvJUw44cpuJeBPWJ7HZMmmZhG63WIgpVq1qDx4c8oiqIVxJJoHvYUh2Lx2BFBcucBcUUgYXiVN4RRlCtark9qn5NsHLQoL5KkL9wjYi8ZlvE9RHWyr2nY4vGT7HJBb2nTZxYCZ0WAIMjaIQjDhTY8axhqDz34fj6VyrPjHDpA0NFc1Tr9Y4NtpLaHJhCahPRhjYYjrFKlb4vVFyLKQ6cl-0EN3H-ppGaJtRhS6ehN4JHs5Y='
+# --- دریافت اطلاعات از متغیرهای محیطی (برای امنیت در گیت‌هاب) ---
+# اگر متغیر محیطی نبود، از مقادیر پیش‌فرض استفاده می‌کند (فقط برای تست لوکال)
+API_ID = int(os.environ.get('TELEGRAM_API_ID', 34146126))
+API_HASH = os.environ.get('TELEGRAM_API_HASH', '6f3350e049ef37676b729241f5bc8c5e')
+SESSION_STRING = os.environ.get('TELEGRAM_SESSION', 'YOUR_SESSION_STRING_HERE') 
+# نکته: سشن استرینگ طولانی خود را در متغیرهای محیطی قرار دهید یا اینجا جایگزین کنید
 
 CHANNELS = [
     'napsternetv', 'v2ray_free_conf', 'V2ray_Alpha', 
@@ -17,97 +18,69 @@ CHANNELS = [
     'VmessProtocol', 'FreeVmessAndVless', 'PrivateVPNs', 'v2rayng_vpn'
 ]
 
-# ریجکس کامل برای پیدا کردن همه مدل کانفیگ
+# ریجکس برای پیدا کردن کانفیگ‌ها
 PROTOCOLS = r'(vless|vmess|trojan|ss|hysteria2|tuic)://[a-zA-Z0-9\-_@.:?=&%#~*+/]+'
 
-async def check_latency(host, port, timeout=4):
-    try:
-        conn = asyncio.open_connection(host, port)
-        reader, writer = await asyncio.wait_for(conn, timeout=timeout)
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except:
-            pass
-        return True
-    except:
-        return False
-
-def parse_config(config):
-    try:
-        config = config.strip()
-        if config.startswith("vmess://"):
-            b64 = config.split("://")[1]
-            missing_padding = len(b64) % 4
-            if missing_padding:
-                b64 += '=' * (4 - missing_padding)
-            v2_data = json.loads(base64.b64decode(b64).decode('utf-8'))
-            return v2_data.get('add'), int(v2_data.get('port'))
-        else:
-            part = config.split("://")[1]
-            if "@" in part:
-                address_part = part.split("@")[1]
-            else:
-                address_part = part
-            clean_addr = address_part.split("?")[0].split("#")[0]
-            if ":" in clean_addr:
-                host, port = clean_addr.rsplit(":", 1)
-                host = host.replace("[", "").replace("]", "")
-                return host, int(port)
-            return None, None
-    except:
-        return None, None
-
 async def main():
-    print("🚀 Running Collector...")
+    print("🚀 Running Collector (No Test Mode)...")
+    
+    # بررسی وجود سشن
+    if SESSION_STRING == 'YOUR_SESSION_STRING_HERE':
+        print("❌ Error: SESSION_STRING is missing.")
+        return
+
     async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH) as client:
         raw_configs = set()
+        
         for channel in CHANNELS:
             try:
                 print(f"📥 Scanning {channel}...")
-                async for message in client.iter_messages(channel, limit=300):
+                # تعداد پیام‌ها را کمتر کردم چون تست نداریم و سرعت بالاست
+                async for message in client.iter_messages(channel, limit=100):
                     if message.text:
                         found = re.findall(PROTOCOLS, message.text, re.IGNORECASE)
                         for c in found:
+                            # تمیز کردن کانفیگ
                             clean_conf = c.replace('\u200e', '').strip()
                             if len(clean_conf) < 2000:
                                 raw_configs.add(clean_conf)
             except Exception as e:
                 print(f"⚠️ Error {channel}: {e}")
 
-        print(f"🔍 Found {len(raw_configs)} unique configs. Testing...")
+        print(f"🔍 Found {len(raw_configs)} unique configs.")
 
-        valid_configs = []
-        tasks = []
-        config_list = list(raw_configs)
+        # تبدیل ست به لیست برای مرتب‌سازی یا محدودسازی
+        final_configs = list(raw_configs)
 
-        for conf in config_list:
-            host, port = parse_config(conf)
-            if host and port:
-                tasks.append(check_latency(host, port))
+        # (اختیاری) اولویت بندی متنی ساده: کانفیگ‌هایی که SNI یا FP دارند بالاتر قرار بگیرند
+        # چون تست اتصال نداریم، این تنها راه مرتب‌سازی کیفی است
+        prioritized = []
+        others = []
+        for conf in final_configs:
+            if "sni=" in conf or "pbk=" in conf or "fp=" in conf:
+                prioritized.append(conf)
             else:
-                tasks.append(asyncio.create_task(asyncio.sleep(0)))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for i, result in enumerate(results):
-            if isinstance(result, bool) and result:
-                conf = config_list[i]
-                if "pbk=" in conf or "sni=" in conf or "fp=" in conf:
-                    valid_configs.insert(0, conf)
-                else:
-                    valid_configs.append(conf)
-
-        final_configs = valid_configs[:100]
-        final_text = "\n".join(final_configs)
+                others.append(conf)
         
-        with open('sub.txt', 'w', encoding='utf-8') as f:
-            f.write(base64.b64encode(final_text.encode('utf-8')).decode('utf-8'))
+        # ترکیب لیست‌ها (اول خوب‌ها، بعد بقیه)
+        merged_configs = prioritized + others
+        
+        # محدود کردن تعداد خروجی (مثلا ۳۰۰ تا) تا فایل خیلی سنگین نشود
+        final_list = merged_configs[:300]
+        
+        final_text = "\n".join(final_list)
+        
+        # ذخیره فایل‌ها
+        try:
+            with open('sub.txt', 'w', encoding='utf-8') as f:
+                f.write(base64.b64encode(final_text.encode('utf-8')).decode('utf-8'))
+                
+            with open('configs.txt', 'w', encoding='utf-8') as f:
+                f.write(final_text)
             
-        with open('configs.txt', 'w', encoding='utf-8') as f:
-            f.write(final_text)
-
-        print(f"✅ Done! Saved {len(final_configs)} configs.")
+            print(f"✅ Done! Saved {len(final_list)} configs.")
+        except Exception as e:
+            print(f"❌ Error saving files: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
