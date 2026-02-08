@@ -20,7 +20,7 @@ CHANNELS = [
 # ریجکس کامل برای پیدا کردن همه مدل کانفیگ
 PROTOCOLS = r'(vless|vmess|trojan|ss|hysteria2|tuic)://[a-zA-Z0-9\-_@.:?=&%#~*+/]+'
 
-async def check_latency(host, port, timeout=2):
+async def check_latency(host, port, timeout=4):
     try:
         conn = asyncio.open_connection(host, port)
         reader, writer = await asyncio.wait_for(conn, timeout=timeout)
@@ -65,7 +65,7 @@ async def main():
         for channel in CHANNELS:
             try:
                 print(f"📥 Scanning {channel}...")
-                async for message in client.iter_messages(channel, limit=200):
+                async for message in client.iter_messages(channel, limit=300):
                     if message.text:
                         found = re.findall(PROTOCOLS, message.text, re.IGNORECASE)
                         for c in found:
