@@ -23,28 +23,20 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        pip install --upgrade pip
+        python -m pip install --upgrade pip
         pip install telethon python-socks[asyncio]
 
     - name: Run Collector Script
-      env:
-        # اتصال سکرت‌های گیت‌هاب به متغیرهای پایتون
-        API_ID: ${{ secrets.API_ID }}
-        API_HASH: ${{ secrets.API_HASH }}
-        SESSION_STRING: ${{ secrets.SESSION_STRING }}
       run: python collector.py
 
     - name: Commit and Push Changes
       run: |
         git config --global user.name "GitHub Action"
         git config --global user.email "action@github.com"
-        
-        git add sub.txt configs.txt
-        
-        # فقط اگر تغییری بود کامیت کن
+        git add sub.txt configs.txt || true
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else
-          git commit -m "Auto Update Configs [$(date)]"
+          git commit -m "Auto Update Configs"
           git push
         fi
