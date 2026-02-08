@@ -56,9 +56,20 @@ async def main():
             try:
                 async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
                     if message.text:
-                        pattern = r'(vmess://[a-zA-Z0-9+/=]+|vless://[a-zA-Z0-9\-@:?=&%.]+|ss://[a-zA-Z0-9\-@:?=&%.]+|trojan://[a-zA-Z0-9\-@:?=&%.]+)'
+                        # --- اصلاح شده: استفاده از \S+ برای گرفتن تمام کاراکترهای غیر فاصله ---
+                        # این الگو باعث می‌شود تا زمانی که به فاصله (Space) یا خط بعد نرسیده، همه چیز از جمله # و اسم را بگیرد.
+                        pattern = r'(vmess://[a-zA-Z0-9+/=]+|vless://\S+|ss://\S+|trojan://\S+|tuic://\S+|hysteria2?://\S+)'
+                        
                         found = re.findall(pattern, message.text)
-                        all_raw_configs.extend(found)
+                        
+                        # حذف کاراکترهای اضافی احتمالی که ممکن است به اشتباه گرفته شده باشند (مثل پرانتز بسته یا markdown)
+                        cleaned_found = []
+                        for conf in found:
+                            # اگر انتهای کانفیگ کاراکترهای عجیب چسبیده بود، آن‌ها را تمیز می‌کنیم
+                            conf = re.sub(r'[)\]}"\'>]+$', '', conf)
+                            cleaned_found.append(conf)
+
+                        all_raw_configs.extend(cleaned_found)
                 await asyncio.sleep(random.randint(1, 3)) 
             except Exception as e:
                 print(f"⚠️ خطا در کانال {channel}: {e}")
@@ -67,14 +78,23 @@ async def main():
         unique_configs = list(dict.fromkeys(all_raw_configs))
         valid_configs = []
 
+        print(f"🔍 تعداد کل کانفیگ‌های پیدا شده (قبل از تست): {len(unique_configs)}")
+
         for conf in unique_configs:
             if len(valid_configs) >= TOTAL_FINAL_COUNT: break
             try:
+                # لاجیک ساده برای پیدا کردن آدرس سرور جهت پینگ گرفتن
+                # توجه: این لاجیک برای همه نوع لینک‌ها دقیق نیست اما کار را راه می‌اندازد
                 if "@" in conf:
                     parts = re.search(r'@([^:]+):(\d+)', conf)
-                    if parts and is_server_alive(parts.group(1), parts.group(2)):
-                        valid_configs.append(conf)
+                    if parts:
+                         if is_server_alive(parts.group(1), parts.group(2)):
+                            valid_configs.append(conf)
+                    else:
+                        # اگر نتوانستیم هاست را پیدا کنیم، فعلا اضافه می‌کنیم (یا می‌توانید نادیده بگیرید)
+                        valid_configs.append(conf) 
                 else:
+                    # برای لینک‌هایی مثل vmess که ساختار متفاوت دارند فعلا بدون تست اضافه می‌شوند
                     valid_configs.append(conf)
             except:
                 continue
