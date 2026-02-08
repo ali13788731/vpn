@@ -1,8 +1,8 @@
-name: V2Ray Collector
+name: V2Ray Collector Auto-Update
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # اجرای خودکار هر 10 دقیقه
+    - cron: '*/30 * * * *' # اجرا هر 30 دقیقه
   workflow_dispatch: # دکمه اجرای دستی
 
 permissions:
@@ -11,41 +11,40 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-    - name: Checkout code
+    - name: Checkout Repository
       uses: actions/checkout@v3
-      with:
-        fetch-depth: 0 # برای جلوگیری از تداخل در push
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
-    - name: Install dependencies
+    - name: Install Dependencies
       run: |
+        pip install --upgrade pip
         pip install telethon python-socks[asyncio]
 
-    - name: Run collector script
+    - name: Run Collector Script
       env:
+        # اتصال سکرت‌های گیت‌هاب به متغیرهای پایتون
+        API_ID: ${{ secrets.API_ID }}
+        API_HASH: ${{ secrets.API_HASH }}
         SESSION_STRING: ${{ secrets.SESSION_STRING }}
-        API_HASH: "6f3350e049ef37676b729241f5bc8c5e"
       run: python collector.py
 
-    - name: Commit and Push
+    - name: Commit and Push Changes
       run: |
         git config --global user.name "GitHub Action"
         git config --global user.email "action@github.com"
         
-        # اجبار گیت به هماهنگی با سرور بدون درگیری
-        git fetch origin main
-        git reset --soft origin/main
+        git add sub.txt configs.txt
         
-        # اضافه کردن فایل و آپلود
-        git add sub.txt
-        if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "Update configs [$(date)]"
-          git push origin main --force
-        else
+        # فقط اگر تغییری بود کامیت کن
+        if git diff --staged --quiet; then
           echo "No changes to commit"
+        else
+          git commit -m "Auto Update Configs [$(date)]"
+          git push
         fi
