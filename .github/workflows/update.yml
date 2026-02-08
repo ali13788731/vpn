@@ -2,8 +2,8 @@ name: V2Ray Collector Auto-Update
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # اجرا هر 30 دقیقه
-  workflow_dispatch: # دکمه اجرای دستی
+    - cron: '0 * * * *' # اجرا هر 1 ساعت (چون تست ندارید، سریعتر انجام میشه)
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -24,9 +24,14 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install telethon python-socks[asyncio]
+        pip install telethon
 
     - name: Run Collector Script
+      env:
+        # این متغیرها را باید در تنظیمات مخزن گیت‌هاب ست کنید
+        TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+        TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
       run: python collector.py
 
     - name: Commit and Push Changes
