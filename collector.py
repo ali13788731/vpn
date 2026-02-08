@@ -13,7 +13,7 @@ SESSION_STRING = '1BJWap1sBu1UWJfb7cqBi3CecVPgf22UHnUDZ5lldvPwcPsOQZ9LLEfFdkZbvd
 
 CHANNELS = [
     'napsternetv', 'v2ray_free_conf', 'V2ray_Alpha', 
-    'V2Ray_Vpn_Config', 'v2ray_outline_config', 'v2rayng_org',
+    'V2Ray_Vpn_Config', 'iranconfigs_ir', 'v2rayng_org',
     'VmessProtocol', 'FreeVmessAndVless', 'PrivateVPNs', 'v2rayng_vpn'
 ]
 
