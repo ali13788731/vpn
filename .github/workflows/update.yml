@@ -2,12 +2,11 @@ name: V2Ray Collector
 
 on:
   schedule:
-    # هر 45 دقیقه یکبار اجرا شود (30 دقیقه کمی ریسکی است برای تلگرام)
-    # فرمت: دقیقه ساعت روز ماه هفته
+    # اجرا هر 45 دقیقه (ایمن تر از 30 دقیقه)
     - cron: '*/45 * * * *'
   workflow_dispatch:
 
-# جلوگیری از اجرای همزمان چندین اکشن برای جلوگیری از تداخل در گیت
+# جلوگیری از تداخل اجراهای همزمان
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,24 +17,22 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # اگر اسکریپت گیر کرد، بعد از ۱۵ دقیقه خودکار قطع شود تا سهمیه اکانت تمام نشود
-    timeout-minutes: 15 
+    # اگر بیشتر از 15 دقیقه طول کشید، قطع کن تا سهمیه نسوزد
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4 # نسخه جدیدتر
+      uses: actions/checkout@v4
       with:
-        fetch-depth: 0 # برای پوش کردن تاریخچه کامل لازم است
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip' # کش کردن پکیج‌ها برای سرعت بیشتر
+        # کش را حذف کردیم تا ارور ندهد
 
     - name: Install dependencies
-      # اگر فایل requirements.txt دارید از آن استفاده کنید، اگر نه همین روش خوب است
-      # پکیج tqdm را هم اضافه کردم چون در کد پایتون پیشنهاد دادم
       run: |
         pip install --upgrade pip
         pip install telethon python-socks[asyncio] tqdm
@@ -52,15 +49,15 @@ jobs:
         git config --global user.name "GitHub Action"
         git config --global user.email "action@github.com"
         
-        # اضافه کردن فایل
+        # فایل‌هایی که می‌خواهید ذخیره شوند
         git add sub.txt sub_raw.txt
         
-        # بررسی وضعیت تغییرات
+        # بررسی تغییرات
         if [ -n "$(git status --porcelain)" ]; then
           echo "Changes detected. Committing..."
           git commit -m "🚀 Update configs [$(date '+%Y-%m-%d %H:%M:%S')]"
           
-          # ترفند جلوگیری از خطا: دریافت آخرین تغییرات قبل از پوش
+          # دریافت آخرین تغییرات قبل از پوش برای جلوگیری از خطا
           git pull --rebase origin main
           git push origin main
         else
