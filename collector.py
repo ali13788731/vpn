@@ -14,9 +14,7 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 
 # لیست کانال‌های هدف
 CHANNELS = [
-    'napsternetv',
-    'v2rayng_org',
-    'v2ray_outlineir'
+    'napsternetv'
 ]
 
 SEARCH_LIMIT = 200  # تعداد پیام برای بررسی در هر کانال
