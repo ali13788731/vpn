@@ -1,185 +1,166 @@
 import os
 import re
 import base64
-import json
 import asyncio
-from urllib.parse import urlparse, unquote
+import random
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.network import ConnectionTcpFull
 
-# ---------------- CONFIGURATION ----------------
+# تنظیمات
 API_ID = int(os.environ.get("API_ID", 34146126))
 API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
+# لیست کانال‌های هدف
 CHANNELS = [
     'napsternetv',
     'v2rayng_org',
-    'v2ray_outlineir',
-    'free_v2ray_configs',
-    'v2ray_custom',
-    'SafeNet_Server'
+    'v2ray_outlineir'
 ]
 
-# تعداد کانفیگ نهایی برای ذخیره
-TOTAL_FINAL_COUNT = 100
-# تایم‌اوت تست اتصال (ثانیه)
-TIMEOUT = 3
+SEARCH_LIMIT = 200  # تعداد پیام برای بررسی در هر کانال
+TOTAL_FINAL_COUNT = 500 # حداکثر تعداد کانفیگ نهایی
 
-# ---------------- HELPERS ----------------
-
-def decode_vmess(vmess_url):
-    """استخراج اطلاعات از لینک VMess"""
+async def check_port(host, port, timeout=2):
+    """
+    تست اتصال غیرهمگام (Async) به پورت
+    """
     try:
-        b64 = vmess_url.replace("vmess://", "")
-        padding = len(b64) % 4
-        if padding:
-            b64 += "=" * (4 - padding)
-        decoded = base64.b64decode(b64).decode('utf-8')
-        data = json.loads(decoded)
-        # return: host, port, name(ps)
-        return data.get('add'), int(data.get('port')), data.get('ps', '')
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, int(port)), timeout=timeout
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
     except:
-        return None, None, None
+        return False
 
-def parse_config(conf):
-    """استخراج هاست، پورت و نام کانفیگ"""
-    host, port, name = None, None, ""
+def clean_config(conf):
+    """
+    پاکسازی کانفیگ از کاراکترهای اضافی و توضیحات فارسی/هشتگ
+    """
+    # حذف هشتگ و توضیحات بعد از آن (برای vless/vmess/trojan)
+    # معمولاً کانفیگ‌ها تا قبل از کاراکتر # معتبر هستند (مگر اینکه اسم در انکدینگ باشد که بحثش جداست)
+    # اما در لینک‌های استاندارد، فرگمنت (#) برای نامگذاری است و حذفش مشکلی در اتصال ایجاد نمی‌کند.
+    conf = re.sub(r'#.*$', '', conf)
     
-    try:
-        if conf.startswith("vmess://"):
-            host, port, name = decode_vmess(conf)
-        else:
-            # برای vless, trojan, ss, etc.
-            parsed = urlparse(conf)
-            host = parsed.hostname
-            port = parsed.port
-            # نام کانفیگ معمولاً بعد از # است (fragment)
-            if parsed.fragment:
-                name = unquote(parsed.fragment) # تبدیل کدهای درصد دار به متن
-            
-            # هندل کردن حالت‌های خاص که urlparse ممکن است گیج شود
-            if not host and '@' in conf:
-                match = re.search(r'@([^/:]+):(\d+)', conf)
-                if match:
-                    host = match.group(1)
-                    port = int(match.group(2))
-    except Exception:
-        pass
-
-    # اگر اسمی پیدا نشد، از ترکیب هاست و پورت استفاده کن که حذف نشود
-    if not name and host:
-        name = f"{host}:{port}"
-
-    return host, port, name
-
-async def check_connection(host, port, config, semaphore):
-    """تست سریع اتصال TCP"""
-    if not host or not port:
-        return None
-
-    async with semaphore:
-        try:
-            fut = asyncio.open_connection(host, port)
-            reader, writer = await asyncio.wait_for(fut, timeout=TIMEOUT)
-            writer.close()
-            await writer.wait_closed()
-            return config
-        except:
-            return None
-
-# ---------------- MAIN ----------------
+    # حذف کاراکترهای مارک‌داون یا HTML که ممکن است چسبیده باشند
+    conf = re.sub(r'[)\]}"\'>]+$', '', conf)
+    
+    # حذف فاصله‌های خالی
+    return conf.strip()
 
 async def main():
     if not SESSION_STRING:
-        print("❌ خطا: SESSION_STRING یافت نشد.")
+        print("❌ Error: SESSION_STRING not found in environment variables!")
         return
 
-    client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+    client = TelegramClient(
+        StringSession(SESSION_STRING), 
+        API_ID, 
+        API_HASH,
+        connection=ConnectionTcpFull
+    )
     
     try:
-        print("🚀 در حال اتصال به تلگرام...")
+        print("🚀 Connecting to Telegram...")
         await client.connect()
         if not await client.is_user_authorized():
-            print("❌ سشن نامعتبر است.")
+            print("❌ Error: Session is invalid or not authorized!")
             return
 
-        all_configs = []
-        # پترن RegEx کامل
-        pattern = r'(vmess://[\w+/=]+|vless://\S+|ss://\S+|trojan://\S+|tuic://\S+|hysteria2?://\S+)'
+        print("📥 Starting config collection...")
+        all_raw_configs = []
+        
+        # الگوی دقیق‌تر برای استخراج
+        # این الگو سعی می‌کند پروتکل را بگیرد و تا رسیدن به فضای خالی یا خط بعد ادامه دهد
+        pattern = r'(vmess://[a-zA-Z0-9+/=]+|vless://[^#\s]+|ss://[^#\s]+|trojan://[^#\s]+|tuic://[^#\s]+|hysteria2?://[^#\s]+)'
 
-        print("📥 در حال اسکن کانال‌ها (این کار ممکن است کمی طول بکشد)...")
         for channel in CHANNELS:
+            print(f"📡 Scanning: @{channel}")
             try:
-                # لیمیت را 300 گذاشتیم تا پیام‌های بیشتری بررسی شود
-                async for message in client.iter_messages(channel, limit=300):
+                msg_count = 0
+                async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
                     if message.text:
                         found = re.findall(pattern, message.text)
                         for conf in found:
-                            # تمیزکاری انتهای لینک
-                            conf = re.sub(r'[)\]}"\'>]+$', '', conf)
-                            all_configs.append(conf)
+                            cleaned = clean_config(conf)
+                            if cleaned:
+                                all_raw_configs.append(cleaned)
+                    msg_count += 1
+                print(f"   ✅ Scanned {msg_count} messages.")
             except Exception as e:
-                print(f"⚠️ خطا در کانال {channel}: {e}")
+                print(f"   ⚠️ Error collecting from {channel}: {e}")
 
-        print(f"🔍 تعداد کل کانفیگ‌های خام پیدا شده: {len(all_configs)}")
+        # حذف تکراری‌ها
+        unique_configs = list(dict.fromkeys(all_raw_configs))
+        print(f"🔍 Total unique configs found: {len(unique_configs)}")
 
-        # --- مرحله 1: حذف نام‌های تکراری ---
-        unique_name_configs = []
-        seen_names = set()
-        seen_hosts = set() # برای جلوگیری از تکرار خود سرور هم چک می‌کنیم
-
-        print("♻️ در حال فیلتر کردن نام‌های تکراری...")
-        
-        for conf in all_configs:
-            host, port, name = parse_config(conf)
-            
-            if host and name:
-                # نرمال‌سازی نام (حذف فاصله و حروف کوچک)
-                clean_name = name.strip().lower()
-                clean_host = host.strip().lower()
-
-                # شرط: نه اسم تکراری باشد، نه خود سرور تکراری باشد
-                if clean_name not in seen_names and clean_host not in seen_hosts:
-                    seen_names.add(clean_name)
-                    seen_hosts.add(clean_host)
-                    unique_name_configs.append((host, port, conf))
-        
-        print(f"📉 تعداد کانفیگ‌ها پس از حذف نام‌های تکراری: {len(unique_name_configs)}")
-
-        # --- مرحله 2: تست اتصال (Async) ---
-        print("⚡ شروع تست اتصال...")
-        
         valid_configs = []
-        semaphore = asyncio.Semaphore(100) # افزایش سرعت تست همزمان
-        tasks = []
-
-        for host, port, conf in unique_name_configs:
-            task = check_connection(host, port, conf, semaphore)
-            tasks.append(task)
-
-        results = await asyncio.gather(*tasks)
-
-        for res in results:
-            if res:
-                valid_configs.append(res)
-                if len(valid_configs) >= TOTAL_FINAL_COUNT:
-                    break
         
-        print(f"✅ تعداد کانفیگ‌های سالم نهایی: {len(valid_configs)}")
+        # Semaphore برای کنترل تعداد تست‌های همزمان (جلوگیری از کرش کردن به دلیل باز کردن سوکت زیاد)
+        sem = asyncio.Semaphore(20) 
 
-        # --- ذخیره ---
+        async def validate(conf):
+            if len(valid_configs) >= TOTAL_FINAL_COUNT:
+                return
+
+            # لاجیک استخراج آدرس و پورت
+            host, port = None, None
+            
+            # استخراج برای VLESS, Trojan, SS (فرمت ساده)
+            if "@" in conf and ":" in conf:
+                try:
+                    # تلاش برای پیدا کردن IP و Port بین @ و ? یا انتهای خط
+                    match = re.search(r'@([^:/?#]+):(\d+)', conf)
+                    if match:
+                        host = match.group(1)
+                        port = match.group(2)
+                except:
+                    pass
+            
+            # اگر هاست و پورت پیدا شد، تست کن
+            if host and port:
+                async with sem:
+                    is_alive = await check_port(host, port)
+                    if is_alive:
+                        valid_configs.append(conf)
+                        print(f"   🟢 Alive: {host}:{port}")
+                    else:
+                        # print(f"   🔴 Dead: {host}:{port}") # اختیاری: برای شلوغ نشدن لاگ کامنت شد
+                        pass
+            else:
+                # برای VMess یا فرمت‌های پیچیده که پارس نکردیم، فعلاً اضافه می‌کنیم (یا می‌توانید حذف کنید)
+                valid_configs.append(conf)
+
+        # اجرای تست‌ها به صورت همزمان (Concurrent)
+        print("⚡ Testing configs connectivity...")
+        tasks = [validate(conf) for conf in unique_configs]
+        await asyncio.gather(*tasks)
+
+        # ذخیره خروجی
         if valid_configs:
-            content_str = "\n".join(valid_configs)
+            # محدود کردن به تعداد درخواستی
+            final_list = valid_configs[:TOTAL_FINAL_COUNT]
+            content_str = "\n".join(final_list)
+            
+            # انکد کردن به Base64 (فرمت Subscription)
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+            
             with open("sub.txt", "w") as f:
                 f.write(encoded)
-            print("💾 فایل sub.txt آپدیت شد.")
+            
+            # ذخیره فایل بدون انکد (اختیاری - برای دیباگ)
+            with open("sub_raw.txt", "w") as f:
+                 f.write(content_str)
+
+            print(f"✨ Success! Saved {len(final_list)} configs to sub.txt")
         else:
-            print("⚠️ کانفیگ سالمی پیدا نشد.")
+            print("⚠️ No valid configs found.")
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"⚠️ Critical Error: {e}")
     finally:
         await client.disconnect()
 
