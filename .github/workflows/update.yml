@@ -2,8 +2,8 @@ name: V2Ray Collector
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # اجرای خودکار هر 10 دقیقه
-  workflow_dispatch: # دکمه اجرای دستی
+    - cron: '*/30 * * * *' # تغییر به هر 30 دقیقه (10 دقیقه ممکن است باعث بن شدن اکانت تلگرام شود)
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,12 +15,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
       with:
-        fetch-depth: 0 # برای جلوگیری از تداخل در push
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: '3.10'
 
     - name: Install dependencies
       run: |
@@ -29,7 +29,9 @@ jobs:
     - name: Run collector script
       env:
         SESSION_STRING: ${{ secrets.SESSION_STRING }}
-        API_HASH: "6f3350e049ef37676b729241f5bc8c5e"
+        # پیشنهاد می‌شود API_ID و API_HASH را هم در Secrets گیت‌هاب تعریف کنید
+        API_ID: ${{ secrets.API_ID }} 
+        API_HASH: ${{ secrets.API_HASH }}
       run: python collector.py
 
     - name: Commit and Push
@@ -37,15 +39,11 @@ jobs:
         git config --global user.name "GitHub Action"
         git config --global user.email "action@github.com"
         
-        # اجبار گیت به هماهنگی با سرور بدون درگیری
-        git fetch origin main
-        git reset --soft origin/main
-        
-        # اضافه کردن فایل و آپلود
+        # چک می‌کنیم اگر فایل تغییر کرده باشد کامیت می‌کنیم
         git add sub.txt
         if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "Update configs [$(date)]"
-          git push origin main --force
+          git commit -m "🚀 Update configs [$(date '+%Y-%m-%d %H:%M:%S')]"
+          git push origin main
         else
           echo "No changes to commit"
         fi
