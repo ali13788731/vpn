@@ -3,16 +3,28 @@ import re
 import base64
 import json
 import asyncio
-import socket
-from urllib.parse import urlparse
+# import socket # (این خط اگر استفاده نمیشود کامنت شود یا بماند فرقی ندارد)
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpFull
 
-# تنظیمات
-API_ID = int(os.environ.get("API_ID", 34146126))
-API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
+# --- بخش تنظیمات اصلاح شده (ضد خطا) ---
+def get_env_int(key, default):
+    value = os.environ.get(key)
+    if value and value.strip(): # اگر مقدار وجود داشت و خالی نبود
+        return int(value)
+    return default
+
+def get_env_str(key, default):
+    value = os.environ.get(key)
+    if value and value.strip():
+        return value
+    return default
+
+API_ID = get_env_int("API_ID", 34146126)
+API_HASH = get_env_str("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
+# ---------------------------------------
 
 # لیست کانال‌های هدف
 CHANNELS = [
