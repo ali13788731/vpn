@@ -13,10 +13,7 @@ API_ID = 34146126
 API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
-# لیست کانال‌های هدف
-CHANNELS = [
-    'napsternetv'
-]
+CHANNELS = ['napsternetv']
 SEARCH_LIMIT = 500
 TOTAL_FINAL_COUNT = 100
 
@@ -55,57 +52,61 @@ async def main():
             try:
                 async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
                     if message.text:
-                        # --- اصلاح شده: استفاده از \S+ برای گرفتن تمام کاراکترهای غیر فاصله ---
-                        # این الگو باعث می‌شود تا زمانی که به فاصله (Space) یا خط بعد نرسیده، همه چیز از جمله # و اسم را بگیرد.
-                        pattern = r'(vmess://[a-zA-Z0-9+/=]+|vless://\S+|ss://\S+|trojan://\S+|tuic://\S+|hysteria2?://\S+)'
+                        # رگکس بهینه شده برای استخراج کامل لینک‌ها تا رسیدن به فضای خالی یا انتهای خط
+                        pattern = r'(vmess|vless|ss|trojan|tuic|hysteria2?)://\S+'
                         found = re.findall(pattern, message.text)
                         
-                        # حذف کاراکترهای اضافی احتمالی که ممکن است به اشتباه گرفته شده باشند (مثل پرانتز بسته یا markdown)
-                        cleaned_found = []
-                        for conf in found:
-                            # اگر انتهای کانفیگ کاراکترهای عجیب چسبیده بود، آن‌ها را تمیز می‌کنیم
-                            conf = re.sub(r'[)\]}"\'>]+$', '', conf)
-                            cleaned_found.append(conf)
-                        
-                        all_raw_configs.extend(cleaned_found)
+                        # استخراج کامل کل لینک (نه فقط پروتکل)
+                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://\S+', message.text)
+
+                        for conf in links:
+                            # تمیز کردن کاراکترهای اضافه از انتهای لینک
+                            conf = conf.strip().split('\n')[0] # فقط خط اول
+                            conf = re.sub(r'[)\]}"\'>]+$', '', conf) # حذف کاراکترهای مزاحم
+                            
+                            # --- بخش حل مشکل نام (Remark) ---
+                            # اگر پروتکل vmess نباشد و علامت # نداشته باشد، یک نام به آن اضافه می‌کنیم
+                            if not conf.startswith("vmess://"):
+                                if "#" not in conf:
+                                    conf = f"{conf}#Scraped_Config_{random.randint(100, 999)}"
+                                elif conf.endswith("#"):
+                                    conf = f"{conf}Scraped_Config_{random.randint(100, 999)}"
+                            
+                            all_raw_configs.append(conf)
                 
-                await asyncio.sleep(random.randint(1, 3))
+                await asyncio.sleep(random.randint(1, 2))
             except Exception as e:
                 print(f"⚠️ خطا در کانال {channel}: {e}")
-                continue
 
         unique_configs = list(dict.fromkeys(all_raw_configs))
         valid_configs = []
-        print(f"🔍 تعداد کل کانفیگ‌های پیدا شده (قبل از تست): {len(unique_configs)}")
+        print(f"🔍 تعداد کل پیدا شده: {len(unique_configs)}")
 
         for conf in unique_configs:
             if len(valid_configs) >= TOTAL_FINAL_COUNT:
                 break
+            
+            # تست زنده بودن (اختیاری - اگر پینگ جواب نداد باز هم اضافه می‌کنیم ولی با احتیاط)
             try:
-                # لاجیک ساده برای پیدا کردن آدرس سرور جهت پینگ گرفتن
-                # توجه: این لاجیک برای همه نوع لینک‌ها دقیق نیست اما کار را راه می‌اندازد
                 if "@" in conf:
                     parts = re.search(r'@([^:]+):(\d+)', conf)
                     if parts:
-                        if is_server_alive(parts.group(1), parts.group(2)):
-                            valid_configs.append(conf)
-                        else:
-                            # اگر نتوانستیم هاست را پیدا کنیم، فعلا اضافه می‌کنیم (یا می‌توانید نادیده بگیرید)
-                            valid_configs.append(conf)
+                        host, port = parts.group(1), parts.group(2)
+                        # اگر سرور زنده نبود هم اضافه کن (چون ممکنه پینگ بسته باشه ولی کانفیگ کار کنه)
+                        valid_configs.append(conf)
                     else:
                         valid_configs.append(conf)
                 else:
-                    # برای لینک‌هایی مثل vmess که ساختار متفاوت دارند فعلا بدون تست اضافه می‌شوند
                     valid_configs.append(conf)
             except:
-                continue
+                valid_configs.append(conf)
 
         if valid_configs:
             content_str = "\n".join(valid_configs)
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
             with open("sub.txt", "w") as f:
                 f.write(encoded)
-            print(f"✨ {len(valid_configs)} کانفیگ با موفقیت ذخیره شد.")
+            print(f"✨ {len(valid_configs)} کانفیگ با نام اصلاح شده ذخیره شد.")
         else:
             print("⚠️ کانفیگی پیدا نشد.")
 
