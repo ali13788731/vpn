@@ -2,7 +2,7 @@ name: V2Ray Collector
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # تغییر به هر 30 دقیقه (10 دقیقه ممکن است باعث بن شدن اکانت تلگرام شود)
+    - cron: '*/30 * * * *' # تغییر به هر 30 دقیقه (10 دقیقه ممکن است باعث بن شدن اکشن شود)
   workflow_dispatch:
 
 permissions:
@@ -12,38 +12,34 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: Install dependencies
-      run: |
-        pip install telethon python-socks[asyncio]
+      - name: Install dependencies
+        run: |
+          pip install telethon
 
-    - name: Run collector script
-      env:
-        SESSION_STRING: ${{ secrets.SESSION_STRING }}
-        # پیشنهاد می‌شود API_ID و API_HASH را هم در Secrets گیت‌هاب تعریف کنید
-        API_ID: ${{ secrets.API_ID }} 
-        API_HASH: ${{ secrets.API_HASH }}
-      run: python collector.py
+      - name: Run collector script
+        env:
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          # API_HASH و ID بهتر است در secrets باشند، اما اینجا هاردکد هم کار می‌کند
+        run: python collector.py
 
-    - name: Commit and Push
-      run: |
-        git config --global user.name "GitHub Action"
-        git config --global user.email "action@github.com"
-        
-        # چک می‌کنیم اگر فایل تغییر کرده باشد کامیت می‌کنیم
-        git add sub.txt
-        if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "🚀 Update configs [$(date '+%Y-%m-%d %H:%M:%S')]"
-          git push origin main
-        else
-          echo "No changes to commit"
-        fi
+      - name: Commit and Push
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          
+          # بررسی تغییرات
+          git add sub.txt
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update configs [$(date)]"
+            git push
+          fi
