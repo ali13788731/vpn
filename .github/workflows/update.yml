@@ -1,9 +1,11 @@
 name: V2Ray Collector
 
 on:
+  repository_dispatch:
+    types: [run_update]
   schedule:
-    - cron: '*/10 * * * *' # اجرای خودکار هر 10 دقیقه
-  workflow_dispatch: # دکمه اجرای دستی
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
