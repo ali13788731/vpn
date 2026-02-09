@@ -8,19 +8,14 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpFull
 
-# --- تنظیمات و رفع باگ ---
-
-# دریافت مقادیر از محیط، اگر خالی بود از پیش‌فرض استفاده کن
+# --- تنظیمات ---
 def get_env(key, default):
     val = os.environ.get(key)
     return val if val else default
 
-# اصلاح خطایی که باعث کرش می‌شد:
-# اگر API_ID رشته خالی باشد، تبدیل به int خطا می‌دهد. با این روش اگر خالی بود عدد پیش‌فرض را می‌گیرد.
 try:
-    api_id_val = get_env("API_ID", "34146126")
-    API_ID = int(api_id_val)
-except ValueError:
+    API_ID = int(get_env("API_ID", "34146126"))
+except:
     API_ID = 34146126
 
 API_HASH = get_env("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
@@ -33,21 +28,16 @@ CHANNELS = [
     'v2rayngvpn',
     'free_v2rayyy',
     'v2ray_custom',
+    'Lamerfun', # کانال‌های پروکسی معمولاً فرمت‌های مختلفی دارند
 ]
 
-SEARCH_LIMIT = 100 # کاهش برای افزایش سرعت در اکشن
+SEARCH_LIMIT = 100
 TOTAL_FINAL_COUNT = 300
 TIMEOUT_CONNECT = 2
 
-# نوار پیشرفت فیک برای محیط‌هایی که tqdm ندارند
-try:
-    from tqdm.asyncio import tqdm
-except ImportError:
-    def tqdm(iterable, **kwargs):
-        return iterable
+# --- توابع کمکی ---
 
 async def check_port(host, port, timeout=TIMEOUT_CONNECT):
-    """تست اتصال TCP به پورت"""
     try:
         _, writer = await asyncio.wait_for(
             asyncio.open_connection(host, int(port)), timeout=timeout
@@ -58,116 +48,142 @@ async def check_port(host, port, timeout=TIMEOUT_CONNECT):
     except:
         return False
 
+def clean_config(conf):
+    """پاکسازی لینک از کاراکترهای مزاحم"""
+    # حذف تگ‌های HTML
+    conf = re.sub(r'<[^>]+>', '', conf)
+    # حذف کاراکترهای مارک‌داون و پرانتزهای انتهای پیام
+    # مثلا اگر لینک اینطور باشد: vless://... )
+    conf = conf.rstrip(')]};,"\'')
+    conf = conf.split('\n')[0] # فقط خط اول
+    return conf.strip()
+
 def parse_vmess(conf):
-    """استخراج هاست و پورت از لینک VMess"""
+    """پارس کردن دقیق VMess"""
     try:
         b64_str = conf.replace("vmess://", "")
+        # تصحیح Padding برای Base64
         missing_padding = len(b64_str) % 4
         if missing_padding:
             b64_str += '=' * (4 - missing_padding)
         
-        decoded_data = base64.b64decode(b64_str).decode('utf-8')
+        decoded_data = base64.b64decode(b64_str).decode('utf-8', errors='ignore')
         data = json.loads(decoded_data)
-        return data.get('add'), data.get('port')
-    except Exception:
+        
+        # برخی کانفیگ‌ها host دارند، برخی add
+        host = data.get('add') or data.get('host')
+        port = data.get('port')
+        
+        # تبدیل پورت به int (چون گاهی رشته است)
+        if port:
+            port = int(port)
+            
+        return host, port
+    except Exception as e:
+        # print(f"DEBUG: VMess Parse Error: {e}") 
         return None, None
 
 def extract_host_port(conf):
+    """استخراج هوشمند آدرس و پورت"""
     host, port = None, None
-    if conf.startswith("vmess://"):
-        host, port = parse_vmess(conf)
-    else:
-        try:
-            if "://" not in conf:
-                parsed = urlparse("//" + conf)
-            else:
-                parsed = urlparse(conf)
-            host = parsed.hostname
-            port = parsed.port
+    conf = clean_config(conf)
+    
+    try:
+        if conf.startswith("vmess://"):
+            host, port = parse_vmess(conf)
+        else:
+            # روش اول: استفاده از کتابخانه استاندارد
+            try:
+                if "://" not in conf:
+                    parsed = urlparse("//" + conf)
+                else:
+                    parsed = urlparse(conf)
+                
+                host = parsed.hostname
+                port = parsed.port
+            except:
+                pass
             
+            # روش دوم (Fallback): اگر روش اول جواب نداد، از Regex استفاده کن
+            # دنبال الگوهایی مثل @IP:PORT یا //IP:PORT بگرد
             if not host or not port:
+                # مچ کردن IP یا دامین بعد از @ (برای Vless/Trojan)
                 match = re.search(r'@([^:/?#]+):(\d+)', conf)
+                if not match:
+                    # مچ کردن IP یا دامین بعد از // (برای لینک‌های ساده)
+                    match = re.search(r'://([^:/?#]+):(\d+)', conf)
+                
                 if match:
                     host = match.group(1)
                     port = int(match.group(2))
-        except:
-            pass
-    return host, port
 
-def clean_config(conf):
-    conf = re.sub(r'[)\\\n\r\t ]+$', '', conf)
-    conf = re.sub(r'<[^>]+>', '', conf)
-    return conf.strip()
+    except Exception as e:
+        pass
+        
+    return host, port
 
 async def main():
     if not SESSION_STRING:
-        print("❌ Error: SESSION_STRING not found!")
+        print("❌ Error: SESSION_STRING missing!")
         return
 
-    print(f"ℹ️ Using API_ID: {API_ID}")
-
+    print("🚀 Starting Collector...")
     async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, connection=ConnectionTcpFull) as client:
-        print("🚀 Connected via Telethon.")
         
-        all_raw_configs = []
-        pattern = r'(vmess://[\w+/=]+|vless://[^#\s\n]+|ss://[^#\s\n]+|trojan://[^#\s\n]+|tuic://[^#\s\n]+|hysteria2?://[^#\s\n]+)'
+        all_configs = []
+        # الگوی Regex کمی آزادتر برای پیدا کردن لینک‌ها
+        pattern = r'(vmess://[\w+/=]+|vless://[\w\-@:/?#\.&=]+|ss://[\w\-@:/?#\.&=]+|trojan://[\w\-@:/?#\.&=]+|tuic://[\w\-@:/?#\.&=]+)'
         
-        print("📥 Collecting configs...")
+        print("📥 Collecting...")
         for channel in CHANNELS:
             try:
                 entity = await client.get_entity(channel)
-                msg_count = 0
-                async for message in client.iter_messages(entity, limit=SEARCH_LIMIT):
-                    if message.text:
-                        found = re.findall(pattern, message.text)
-                        for conf in found:
-                            cleaned = clean_config(conf)
-                            if cleaned:
-                                all_raw_configs.append(cleaned)
-                    msg_count += 1
-                print(f"   ✅ @{channel}: Scanned {msg_count} msgs.")
+                async for msg in client.iter_messages(entity, limit=SEARCH_LIMIT):
+                    if msg.text:
+                        found = re.findall(pattern, msg.text)
+                        for c in found:
+                            cleaned = clean_config(c)
+                            if len(cleaned) > 10: # فیلتر کردن رشته‌های خیلی کوتاه
+                                all_configs.append(cleaned)
             except Exception as e:
-                print(f"   ⚠️ Error @{channel}: {e}")
+                print(f"   ⚠️ Skip @{channel}: {e}")
 
-        unique_configs = list(set(all_raw_configs))
-        print(f"🔍 Total unique configs: {len(unique_configs)}")
+        unique_configs = list(set(all_configs))
+        print(f"🔍 Found {len(unique_configs)} raw configs. Validating...")
         
         valid_configs = []
         sem = asyncio.Semaphore(50)
 
-        async def validate_wrapper(conf):
+        async def validate(conf):
             if len(valid_configs) >= TOTAL_FINAL_COUNT:
                 return
-
+            
             host, port = extract_host_port(conf)
-            if host and port:
-                async with sem:
-                    if await check_port(host, port):
-                        valid_configs.append(conf)
+            
+            # اگر هاست یا پورت پیدا نشد، این کانفیگ خراب است
+            if not host or not port:
+                # print(f"Failed to parse: {conf[:30]}...") # برای دیباگ آنکامنت کنید
+                return
 
-        print("⚡ Testing connectivity...")
-        # اگر tqdm نصب باشد نمایش می‌دهد، اگر نه رد می‌شود
-        if 'tqdm' in globals() and hasattr(tqdm, 'gather'):
-             await tqdm.gather(*[validate_wrapper(c) for c in unique_configs])
-        else:
-             await asyncio.gather(*[validate_wrapper(c) for c in unique_configs])
+            async with sem:
+                if await check_port(host, port):
+                    valid_configs.append(conf)
+                    print(f"   🟢 {host}:{port}") # نمایش کانفیگ‌های سالم
 
-        print(f"📊 Validation finished. Valid: {len(valid_configs)}")
+        tasks = [validate(c) for c in unique_configs]
+        await asyncio.gather(*tasks)
+
+        print(f"📊 Results: {len(valid_configs)} valid out of {len(unique_configs)}")
 
         if valid_configs:
-            import random
-            random.shuffle(valid_configs)
-            final_list = valid_configs[:TOTAL_FINAL_COUNT]
-            content_str = "\n".join(final_list)
-            encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+            content = "\n".join(valid_configs)
+            encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
             
-            with open("sub.txt", "w", encoding='utf-8') as f:
-                f.write(encoded)
-            with open("sub_raw.txt", "w", encoding='utf-8') as f:
-                f.write(content_str)
-            print(f"✨ Saved {len(final_list)} configs.")
+            with open("sub.txt", "w") as f: f.write(encoded)
+            with open("sub_raw.txt", "w") as f: f.write(content)
+            print("✨ Saved to sub.txt")
         else:
-            print("⚠️ No valid configs found.")
+            print("⚠️ No working configs found!")
 
 if __name__ == '__main__':
     asyncio.run(main())
