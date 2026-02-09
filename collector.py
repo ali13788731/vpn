@@ -17,7 +17,7 @@ CHANNELS = [
     'napsternetv'
 ]
 
-SEARCH_LIMIT = 100 
+SEARCH_LIMIT = 500 
 TOTAL_FINAL_COUNT = 100
 
 def is_server_alive(host, port, timeout=0.5):
