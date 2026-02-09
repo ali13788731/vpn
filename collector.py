@@ -1,189 +1,178 @@
 import os
 import re
 import base64
-import json
 import asyncio
-from urllib.parse import urlparse
+import socket
+import json
+import urllib.parse
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.network import ConnectionTcpFull
 
-# --- تنظیمات ---
-def get_env(key, default):
-    val = os.environ.get(key)
-    return val if val else default
-
-try:
-    API_ID = int(get_env("API_ID", "34146126"))
-except:
-    API_ID = 34146126
-
-API_HASH = get_env("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
+# تنظیمات
+API_ID = int(os.environ.get("API_ID", 34146126))
+API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = [
-    'napsternetv',
-    'v2rayng_org',
-    'v2ray_outlineir',
-    'v2rayngvpn',
-    'free_v2rayyy',
-    'v2ray_custom',
-    'Lamerfun', # کانال‌های پروکسی معمولاً فرمت‌های مختلفی دارند
+    'napsternetv'
 ]
 
-SEARCH_LIMIT = 100
-TOTAL_FINAL_COUNT = 300
-TIMEOUT_CONNECT = 2
+SEARCH_LIMIT = 100 
+TOTAL_FINAL_COUNT = 100
 
-# --- توابع کمکی ---
-
-async def check_port(host, port, timeout=TIMEOUT_CONNECT):
+def is_server_alive(host, port, timeout=0.5):
+    """تست اتصال TCP کوتاه"""
     try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, int(port)), timeout=timeout
-        )
-        writer.close()
-        await writer.wait_closed()
-        return True
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, int(port)))
+        sock.close()
+        return result == 0
     except:
         return False
 
-def clean_config(conf):
-    """پاکسازی لینک از کاراکترهای مزاحم"""
-    # حذف تگ‌های HTML
-    conf = re.sub(r'<[^>]+>', '', conf)
-    # حذف کاراکترهای مارک‌داون و پرانتزهای انتهای پیام
-    # مثلا اگر لینک اینطور باشد: vless://... )
-    conf = conf.rstrip(')]};,"\'')
-    conf = conf.split('\n')[0] # فقط خط اول
-    return conf.strip()
-
-def parse_vmess(conf):
-    """پارس کردن دقیق VMess"""
+def parse_vmess(vmess_url):
+    """پارس کردن vmess برای استخراج اطلاعات"""
     try:
-        b64_str = conf.replace("vmess://", "")
-        # تصحیح Padding برای Base64
-        missing_padding = len(b64_str) % 4
-        if missing_padding:
-            b64_str += '=' * (4 - missing_padding)
-        
-        decoded_data = base64.b64decode(b64_str).decode('utf-8', errors='ignore')
-        data = json.loads(decoded_data)
-        
-        # برخی کانفیگ‌ها host دارند، برخی add
-        host = data.get('add') or data.get('host')
-        port = data.get('port')
-        
-        # تبدیل پورت به int (چون گاهی رشته است)
-        if port:
-            port = int(port)
-            
-        return host, port
-    except Exception as e:
-        # print(f"DEBUG: VMess Parse Error: {e}") 
-        return None, None
+        b64 = vmess_url.replace("vmess://", "")
+        padding = len(b64) % 4
+        if padding:
+            b64 += "=" * (4 - padding)
+        decoded = base64.b64decode(b64).decode('utf-8')
+        return json.loads(decoded)
+    except:
+        return None
 
-def extract_host_port(conf):
-    """استخراج هوشمند آدرس و پورت"""
-    host, port = None, None
-    conf = clean_config(conf)
+def rename_config(conf, base_name, index):
+    """
+    نام کانفیگ را تغییر می‌دهد.
+    مثال: @ChannelName_1
+    """
+    new_name = f"{base_name}_{index}"
     
-    try:
-        if conf.startswith("vmess://"):
-            host, port = parse_vmess(conf)
-        else:
-            # روش اول: استفاده از کتابخانه استاندارد
-            try:
-                if "://" not in conf:
-                    parsed = urlparse("//" + conf)
-                else:
-                    parsed = urlparse(conf)
-                
-                host = parsed.hostname
-                port = parsed.port
-            except:
-                pass
-            
-            # روش دوم (Fallback): اگر روش اول جواب نداد، از Regex استفاده کن
-            # دنبال الگوهایی مثل @IP:PORT یا //IP:PORT بگرد
-            if not host or not port:
-                # مچ کردن IP یا دامین بعد از @ (برای Vless/Trojan)
-                match = re.search(r'@([^:/?#]+):(\d+)', conf)
-                if not match:
-                    # مچ کردن IP یا دامین بعد از // (برای لینک‌های ساده)
-                    match = re.search(r'://([^:/?#]+):(\d+)', conf)
-                
-                if match:
-                    host = match.group(1)
-                    port = int(match.group(2))
+    # 1. مدیریت VMESS
+    if conf.startswith("vmess://"):
+        try:
+            data = parse_vmess(conf)
+            if data:
+                data['ps'] = new_name  # تغییر نام در فیلد ps
+                # بازگرداندن به حالت base64
+                json_str = json.dumps(data)
+                b64_new = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+                return f"vmess://{b64_new}"
+        except:
+            return conf
 
-    except Exception as e:
-        pass
-        
-    return host, port
+    # 2. مدیریت سایر پروتکل‌ها (VLESS, Trojan, SS, etc)
+    # ساختار معمولاً: protocol://uuid@host:port?params#Name
+    else:
+        try:
+            # جدا کردن بخش هشتگ (نام قبلی) اگر وجود داشته باشد
+            if '#' in conf:
+                main_part = conf.split('#')[0]
+            else:
+                main_part = conf
+            
+            # انکد کردن نام جدید برای قرارگیری در URL
+            safe_name = urllib.parse.quote(new_name)
+            return f"{main_part}#{safe_name}"
+        except:
+            return conf
+    
+    return conf
 
 async def main():
     if not SESSION_STRING:
-        print("❌ Error: SESSION_STRING missing!")
+        print("❌ خطا: SESSION_STRING تنظیم نشده است!")
         return
 
-    print("🚀 Starting Collector...")
-    async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, connection=ConnectionTcpFull) as client:
+    client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+    
+    try:
+        print("🚀 اتصال به تلگرام...")
+        await client.connect()
+        if not await client.is_user_authorized():
+            print("❌ سشن نامعتبر است!")
+            return
+
+        print("✅ متصل شد.")
+        all_unique_configs = []
+        seen_configs = set()
         
-        all_configs = []
-        # الگوی Regex کمی آزادتر برای پیدا کردن لینک‌ها
-        pattern = r'(vmess://[\w+/=]+|vless://[\w\-@:/?#\.&=]+|ss://[\w\-@:/?#\.&=]+|trojan://[\w\-@:/?#\.&=]+|tuic://[\w\-@:/?#\.&=]+)'
-        
-        print("📥 Collecting...")
+        # الگوی جستجو
+        pattern = r'(vmess://[\w+/=]+|vless://\S+|ss://\S+|trojan://\S+|tuic://\S+|hysteria2?://\S+)'
+
         for channel in CHANNELS:
+            print(f"📡 اسکن کانال: @{channel}")
+            channel_configs = []
             try:
-                entity = await client.get_entity(channel)
-                async for msg in client.iter_messages(entity, limit=SEARCH_LIMIT):
-                    if msg.text:
-                        found = re.findall(pattern, msg.text)
-                        for c in found:
-                            cleaned = clean_config(c)
-                            if len(cleaned) > 10: # فیلتر کردن رشته‌های خیلی کوتاه
-                                all_configs.append(cleaned)
+                async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
+                    if not message.text: continue
+                    
+                    found = re.findall(pattern, message.text)
+                    for conf in found:
+                        # پاکسازی کاراکترهای اضافه
+                        conf = re.sub(r'[)\]}"\'>]+$', '', conf)
+                        
+                        # جلوگیری از تکراری بودن خام
+                        if conf not in seen_configs:
+                            seen_configs.add(conf)
+                            channel_configs.append(conf)
             except Exception as e:
-                print(f"   ⚠️ Skip @{channel}: {e}")
-
-        unique_configs = list(set(all_configs))
-        print(f"🔍 Found {len(unique_configs)} raw configs. Validating...")
-        
-        valid_configs = []
-        sem = asyncio.Semaphore(50)
-
-        async def validate(conf):
-            if len(valid_configs) >= TOTAL_FINAL_COUNT:
-                return
+                print(f"⚠️ خطا در {channel}: {e}")
             
-            host, port = extract_host_port(conf)
+            print(f"   باقت: {len(channel_configs)} کانفیگ.")
             
-            # اگر هاست یا پورت پیدا نشد، این کانفیگ خراب است
-            if not host or not port:
-                # print(f"Failed to parse: {conf[:30]}...") # برای دیباگ آنکامنت کنید
-                return
+            # پردازش کانفیگ‌های این کانال
+            for idx, conf in enumerate(channel_configs, 1):
+                if len(all_unique_configs) >= TOTAL_FINAL_COUNT:
+                    break
 
-            async with sem:
-                if await check_port(host, port):
-                    valid_configs.append(conf)
-                    print(f"   🟢 {host}:{port}") # نمایش کانفیگ‌های سالم
+                host, port = None, None
+                
+                # استخراج آدرس برای پینگ
+                if conf.startswith("vmess://"):
+                    data = parse_vmess(conf)
+                    if data:
+                        host, port = data.get('add'), data.get('port')
+                elif "@" in conf:
+                    match = re.search(r'@([^:]+):(\d+)', conf)
+                    if match:
+                        host, port = match.group(1), match.group(2)
+                
+                # تست اتصال
+                is_working = False
+                if host and port:
+                    if is_server_alive(host, port):
+                        is_working = True
+                        print(f"   ✅ سالم: {host}:{port}")
+                    else:
+                        pass # print(f"   ❌ خراب: {host}:{port}")
+                else:
+                    # اگر نتوانستیم هاست را پیدا کنیم، فرض می‌کنیم سالم است (ریسک)
+                    is_working = True 
 
-        tasks = [validate(c) for c in unique_configs]
-        await asyncio.gather(*tasks)
+                if is_working:
+                    # >>> اینجا تغییر نام انجام می‌شود <<<
+                    # نام کانال را تمیز می‌کنیم (فقط حروف و اعداد)
+                    clean_channel_name = re.sub(r'\W+', '', channel)
+                    renamed_conf = rename_config(conf, f"@{clean_channel_name}", len(all_unique_configs)+1)
+                    all_unique_configs.append(renamed_conf)
 
-        print(f"📊 Results: {len(valid_configs)} valid out of {len(unique_configs)}")
-
-        if valid_configs:
-            content = "\n".join(valid_configs)
-            encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+        if all_unique_configs:
+            content_str = "\n".join(all_unique_configs)
+            encoded_sub = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
             
-            with open("sub.txt", "w") as f: f.write(encoded)
-            with open("sub_raw.txt", "w") as f: f.write(content)
-            print("✨ Saved to sub.txt")
+            with open("sub.txt", "w", encoding="utf-8") as f:
+                f.write(encoded_sub)
+            print(f"✨ پایان: {len(all_unique_configs)} کانفیگ ذخیره شد.")
         else:
-            print("⚠️ No working configs found!")
+            print("⚠️ هیچ کانفیگ سالمی پیدا نشد.")
+
+    except Exception as e:
+        print(f"⚠️ خطای کلی: {e}")
+    finally:
+        await client.disconnect()
 
 if __name__ == '__main__':
     asyncio.run(main())
