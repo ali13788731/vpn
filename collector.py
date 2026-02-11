@@ -17,12 +17,7 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 
 # لیست کانال‌های اصلاح شده (این‌ها متن خام می‌ذارن)
 CHANNELS = [
-    'v2rayng_org', 
-    'v2ray_outline', 
-    'FreeV2rays', 
-    'v2rayngvpn', 
-    'PrivateVPNs',
-    'DirectVPN'
+    'napsternetv'
 ] 
 
 SEARCH_LIMIT = 200 # تعداد کمتر ولی از کانال‌های بیشتر اسکن می‌کنیم
