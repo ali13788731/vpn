@@ -27,7 +27,7 @@ async def scrape_configs():
             print("✅ Connected! Fetching messages...")
             configs = set()
             
-            async for message in client.iter_messages(CHANNEL_ID, limit=100):
+            async for message in client.iter_messages(CHANNEL_ID, limit=1000):
                 if message.text:
                     configs.update(re.findall(VLESS_REGEX, message.text))
                     configs.update(re.findall(VMESS_REGEX, message.text))
