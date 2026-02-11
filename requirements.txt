@@ -1,0 +1,4 @@
+telethon
+jdatetime
+cryptg
+python-socks[asyncio]
