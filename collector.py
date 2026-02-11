@@ -1,78 +1,33 @@
 import os
 import re
 import base64
-import json
 import asyncio
 import socket
 import random
-from urllib.parse import urlparse, parse_qs, unquote
+from datetime import datetime
+import pytz # اگر نصب نیست باید به requirements اضافه بشه یا از روش ساده‌تر استفاده کنیم
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpFull
 
-# --- تنظیمات ---
+# تنظیمات
 API_ID = 34146126
 API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
-# لیست کانال‌ها (می‌توانید کانال‌های بیشتری اضافه کنید)
-CHANNELS = [
-    'napsternetv', 'v2rayng_org', 'v2rayng_vpn', 'free_v2rayyy', 
-    'v2ray_outlineir', 'PrivateVPNs', 'DirectVPN'
-]
-SEARCH_LIMIT = 500  # تعداد پیام‌هایی که چک می‌کند (بیشتر کردم تا شانس پیدا کردن متنوع بیشتر شود)
-TOTAL_FINAL_COUNT = 80 # تعداد نهایی کمتر ولی با کیفیت‌تر
-DUPLICATE_WORD_THRESHOLD = 3 # حساسیت روی نام تکراری
+CHANNELS = ['napsternetv'] # کانال‌های بیشتر اضافه کن تا زودتر پر بشه
+SEARCH_LIMIT = 1000  # افزایش دادم تا چون از هر پیام یکی برمیداریم، کم نیاد
+# عدد نهایی اینجا محاسبه میشه (بین 80 تا 100)
+TARGET_COUNT = random.randint(80, 100)
 
-def clean_vmess_key(config):
-    """رفع مشکل پدینگ در Base64"""
-    missing_padding = len(config) % 4
-    if missing_padding:
-        config += '=' * (4 - missing_padding)
-    return config
-
-def extract_details(config_link):
-    """
-    آدرس سرور (Host) و نام (Name) را از انواع لینک‌ها استخراج می‌کند.
-    خروجی: (host, port, name) یا (None, None, None)
-    """
+def is_server_alive(host, port):
     try:
-        config_link = config_link.strip()
-        
-        # --- VMESS ---
-        if config_link.startswith("vmess://"):
-            b64 = config_link.replace("vmess://", "")
-            decoded = base64.b64decode(clean_vmess_key(b64)).decode('utf-8')
-            data = json.loads(decoded)
-            return data.get("add", ""), data.get("port", ""), data.get("ps", "")
-
-        # --- VLESS / TROJAN / TUIC / HYSTERIA ---
-        # این پروتکل‌ها ساختار مشابه URL دارند: protocol://user@host:port?query#name
-        parsed = urlparse(config_link)
-        
-        host = parsed.hostname
-        port = parsed.port
-        name = unquote(parsed.fragment) # چیزی که بعد از # هست
-        
-        if not host: # تلاش دوم با regex برای لینک‌های ناقص
-            match = re.search(r'@([^:]+):', config_link)
-            if match:
-                host = match.group(1)
-        
-        return host, port, name
-
-    except Exception:
-        return None, None, None
-
-def get_clean_words(text):
-    """تبدیل نام به مجموعه‌ای از کلمات تمیز برای مقایسه"""
-    if not text:
-        return set()
-    # حذف همه چیز جز حروف و اعداد
-    clean_text = re.sub(r'[^\w\s]', '', text).lower()
-    words = clean_text.split()
-    # کلمات زیر 3 حرف ارزش مقایسه ندارند
-    return set([w for w in words if len(w) > 2])
+        socket.setdefaulttimeout(1)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((host, int(port)))
+        return True
+    except:
+        return False
 
 async def main():
     if not SESSION_STRING:
@@ -92,99 +47,79 @@ async def main():
             print("❌ سشن نامعتبر است!")
             return
 
-        print("🚀 شروع اسکن سنگین و سخت‌گیرانه...")
-        
-        # پروتکل‌های مجاز (SS حذف شده)
-        pattern = r'(vmess|vless|trojan|tuic|hysteria2?)://\S+'
-        
-        unique_configs = []
-        seen_hosts = set() # برای ذخیره آدرس سرورها (جلوگیری از تکرار شرکت)
-        seen_names_words = [] # برای ذخیره کلمات نام‌ها
+        print(f"🚀 هدف: جمع‌آوری {TARGET_COUNT} کانفیگ (رندوم)...")
+        all_raw_configs = []
 
-        # اسکن کانال‌ها
-        # نکته: ما اول همه را جمع نمی‌کنیم، بلکه حین جمع‌آوری فیلتر می‌کنیم تا سریع‌تر پر شود
-        collected_count = 0
-        
         for channel in CHANNELS:
-            if collected_count >= TOTAL_FINAL_COUNT:
+            if len(all_raw_configs) >= TARGET_COUNT:
                 break
                 
-            print(f"📡 بررسی دقیق @{channel}...")
+            print(f"📡 اسکن @{channel}...")
             try:
                 async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
-                    if collected_count >= TOTAL_FINAL_COUNT:
+                    if len(all_raw_configs) >= TARGET_COUNT:
                         break
-
-                    if message.text:
-                        links = re.findall(pattern, message.text)
                         
-                        for conf in links:
-                            # پاکسازی اولیه
-                            conf = conf.strip().split('\n')[0]
-                            conf = re.sub(r'[)\]}"\'>]+$', '', conf)
+                    if message.text:
+                        # حذف ss از پترن
+                        pattern = r'(vmess|vless|trojan|tuic|hysteria2?)://\S+'
+                        # پیدا کردن همه لینک‌ها
+                        links = re.findall(pattern, message.text)
 
-                            # استخراج اطلاعات فنی
-                            host, port, name = extract_details(conf)
+                        # --- تغییر مهم: فقط برداشتن اولین کانفیگ از پیام ---
+                        if links:
+                            # فقط اولین لینک پیدا شده در پیام را بردار (links[0])
+                            # اگر میخواهی کاملا رندوم باشه از پیام: random.choice(links)
+                            selected_conf = links[0] 
                             
-                            # 1. فیلتر مهم: اگر هاست یا پورت پیدا نشد، ولش کن
-                            if not host:
-                                continue
-                                
-                            # نرمال‌سازی هاست (کوچک کردن حروف)
-                            host = host.lower()
+                            # تمیزکاری لینک
+                            selected_conf = selected_conf.strip().split('\n')[0]
+                            selected_conf = re.sub(r'[)\]}"\'>]+$', '', selected_conf)
 
-                            # 2. فیلتر سخت‌گیرانه سرور (IP/Domain تکراری ممنوع)
-                            # اگر این هاست قبلا دیده شده، یعنی از این شرکت کانفیگ داریم -> حذف
-                            if host in seen_hosts:
-                                continue
-
-                            # 3. فیلتر سخت‌گیرانه نام (کلمات تکراری)
-                            # اگر هاست جدید است اما نامش خیلی شبیه قبلی‌هاست -> حذف
-                            is_duplicate_name = False
-                            if name:
-                                new_words = get_clean_words(name)
-                                if len(new_words) > 0:
-                                    for existing_words in seen_names_words:
-                                        common = new_words.intersection(existing_words)
-                                        if len(common) >= DUPLICATE_WORD_THRESHOLD:
-                                            is_duplicate_name = True
-                                            break
-                                    
-                                    if is_duplicate_name:
-                                        continue
-                                    
-                                    # اگر تایید شد، کلماتش را ذخیره کن
-                                    seen_names_words.append(new_words)
+                            # مدیریت نام (Remark)
+                            if not selected_conf.startswith("vmess://"):
+                                if "#" not in selected_conf:
+                                    selected_conf = f"{selected_conf}#Config_{random.randint(10, 99)}"
                             
-                            # --- تایید نهایی ---
-                            seen_hosts.add(host) # این سرور را به لیست دیده‌شده‌ها اضافه کن
-                            
-                            # اصلاح نام اگر خالی بود
-                            final_conf = conf
-                            if not final_conf.startswith("vmess://") and "#" not in final_conf:
-                                final_conf = f"{final_conf}#Clean_Config_{random.randint(10,99)}"
-
-                            unique_configs.append(final_conf)
-                            collected_count += 1
-                            
-                            if collected_count >= TOTAL_FINAL_COUNT:
-                                break
+                            all_raw_configs.append(selected_conf)
                 
+                await asyncio.sleep(1)
             except Exception as e:
-                print(f"⚠️ گذر از کانال {channel}: {e}")
+                print(f"⚠️ خطا در کانال {channel}: {e}")
 
-        # ذخیره‌سازی
-        if unique_configs:
-            print(f"💎 تعداد {len(unique_configs)} کانفیگ یونیک از سرورهای مختلف استخراج شد.")
-            content_str = "\n".join(unique_configs)
+        # حذف تکراری‌ها (هرچند با منطق بالا احتمال تکرار کمه ولی لازمه)
+        unique_configs = list(dict.fromkeys(all_raw_configs))
+        
+        # اگر بعد از حذف تکراری‌ها کمتر از حد مجاز بود، و هنوز جا داشتیم، مشکلی نیست
+        # اگر بیشتر بود، کات می‌کنیم تا دقیقا همون عدد رندوم بشه
+        final_configs = unique_configs[:TARGET_COUNT]
+        
+        print(f"🔍 تعداد نهایی آماده شده: {len(final_configs)}")
+
+        if final_configs:
+            # --- اضافه کردن تاریخ آپدیت به عنوان اولین آیتم ---
+            # دریافت زمان به وقت ایران (یا جهانی)
+            now = datetime.now()
+            date_str = now.strftime("%H:%M - %Y/%m/%d")
+            
+            # ساخت یک کانفیگ فیک که فقط نقش نمایش تاریخ رو داره (معمولا کلاینت‌ها اینو نشون میدن)
+            # از پروتکل vless استفاده میکنیم چون راحت‌تر اسم رو نشون میده
+            header_conf = f"vless://uuid@1.1.1.1:443?encryption=none&security=none&type=tcp&headerType=none#Updated: {date_str}"
+            
+            # گذاشتن تاریخ اول لیست
+            final_configs.insert(0, header_conf)
+
+            content_str = "\n".join(final_configs)
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+            
             with open("sub.txt", "w") as f:
                 f.write(encoded)
+            print(f"✨ فایل ذخیره شد. (شامل {len(final_configs)-1} کانفیگ واقعی + زمان آپدیت)")
         else:
-            print("⚠️ هیچ کانفیگی با معیارهای سخت‌گیرانه شما پیدا نشد.")
+            print("⚠️ کانفیگی پیدا نشد.")
 
     except Exception as e:
-        print(f"❌ Error Main: {e}")
+        print(f"⚠️ Error: {e}")
     finally:
         await client.disconnect()
 
