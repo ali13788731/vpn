@@ -1,11 +1,11 @@
 name: V2Ray Collector
 
 on:
-  repository_dispatch:
-    types: [run_update]
-  schedule:
-    - cron: '*/30 * * * *'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */1 * * *'
   workflow_dispatch:
+
 
 permissions:
   contents: write
