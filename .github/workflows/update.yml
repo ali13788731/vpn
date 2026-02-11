@@ -2,8 +2,11 @@ name: V2Ray Collector Professional
 
 on:
   schedule:
-    - cron: '0 */1 * * *' # هر ۱ ساعت یکبار اجرا شود
-  workflow_dispatch:
+    - cron: '0 */1 * * *' # اجرا در هر ساعت
+  workflow_dispatch: # امکان اجرای دستی
+
+permissions:
+  contents: write # اجازه نوشتن در مخزن برای رفع خطای 403
 
 jobs:
   build:
@@ -25,17 +28,13 @@ jobs:
         env:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           API_ID: ${{ secrets.API_ID }}
-          API_HASH: "6f3350e049ef37676b729241f5bc8c5e"
+          API_HASH: ${{ secrets.API_HASH }}
         run: python collector.py
 
       - name: Commit and Push
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add sub.txt
-          if git diff --staged --quiet; then
-            echo "No changes"
-          else
-            git commit -m "Update: $(date)"
-            git push origin main --force
-          fi
+          # فقط اگر تغییری وجود داشت کامیت انجام شود
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Configs: $(date)" && git push origin main)
