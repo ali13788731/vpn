@@ -1,1 +1,46 @@
 
+name: Update Proxy Configs
+
+on:
+  # اجرا به صورت خودکار هر ۱۰ دقیقه
+  schedule:
+    - cron: '*/10 * * * *'
+  
+  # قابلیت اجرای دستی یا توسط سرویس‌های خارجی (Failover)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip' # این خط جادویی است که کش را فعال می‌کند
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run script
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+        run: python main.py
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add sub.txt
+          # فقط اگر تغییری وجود داشت کامیت کن تا خطا ندهد
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update configs [$(date)]" && git push)
