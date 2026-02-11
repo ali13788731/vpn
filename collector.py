@@ -11,65 +11,62 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpFull
 
-# تنظیمات
-API_ID = 34146126
+# --- تنظیمات اولیه ---
+# اولویت با متغیرهای محیطی است، اگر نبود از مقادیر پیش‌فرض استفاده می‌کند
+API_ID = int(os.environ.get("API_ID", 34146126)) 
 API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
-CHANNELS = ['napsternetv']
-SEARCH_LIMIT = 1000
-TOTAL_FINAL_COUNT = 200
+CHANNELS = ['napsternetv', 'v2rayng_org', 'v2ray_outlineir'] # می‌توانید کانال‌های بیشتری اضافه کنید
+SEARCH_LIMIT = 500  # تعداد پیام برای بررسی در هر کانال
+TOTAL_FINAL_COUNT = 500 # تعداد نهایی کانفیگ‌ها
 
 def get_persian_time():
     try:
+        # استفاده از کتابخانه tzdata برای اطمینان از وجود منطقه زمانی
         tehran_tz = ZoneInfo("Asia/Tehran")
         now_tehran = datetime.now(tehran_tz)
         j_date = jdatetime.datetime.fromgregorian(datetime=now_tehran)
         return j_date.strftime("%Y-%m-%d %H:%M")
     except Exception as e:
-        return "Unknown-Time"
+        print(f"⚠️ Time Error: {e}")
+        return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 def add_name_to_config(conf, time_tag):
     """
-    نام کانفیگ را به صورت اصولی و بدون خراب کردن ساختار URL تغییر می‌دهد.
+    نام کانفیگ را اصولی تغییر می‌دهد.
     """
-    # وی‌مس چون ساختار Base64 دارد نباید نامش تغییر کند وگرنه خراب می‌شود
+    conf = conf.strip()
+    # وی‌مس معمولا جیسون Base64 است و نباید دستکاری URL شود
     if conf.startswith("vmess://"):
         return conf
 
     try:
-        # تجزیه استاندارد URL
         parsed = urlparse(conf)
         
-        # گرفتن نام فعلی (بخش بعد از #) و دیکود کردن آن (حذف %20 و ...)
+        # دیکود کردن نام فعلی (fragment)
         current_name = unquote(parsed.fragment).strip()
         
-        # ساخت نام جدید
         if not current_name:
-            # اگر نام نداشت، فقط تاریخ را بگذار
-            new_name = time_tag
+            new_name = f"@{time_tag}"
         else:
-            # اگر نام داشت، تاریخ را به انتهایش اضافه کن (با بررسی تکراری نبودن)
+            # اگر تگ زمانی در نام نیست، اضافه کن
             if time_tag not in current_name:
                 new_name = f"{current_name} | {time_tag}"
             else:
                 new_name = current_name
 
-        # اینکود کردن نام جدید (تبدیل فاصله و کاراکترها به فرمت استاندارد URL)
-        # این بخش حیاتی است برای جلوگیری از قرمز شدن کانفیگ‌ها
+        # اینکود مجدد برای جلوگیری از خراب شدن لینک
         final_fragment = quote(new_name)
-        
-        # بازسازی URL با نام جدید
         new_parsed = parsed._replace(fragment=final_fragment)
         return urlunparse(new_parsed)
         
     except Exception:
-        # اگر به هر دلیلی خطا داد، کانفیگ اصلی را برگردان که حذف نشود
         return conf
 
 async def main():
     if not SESSION_STRING:
-        print("❌ SESSION_STRING Not Found!")
+        print("❌ SESSION_STRING Not Found! Please set it in GitHub Secrets.")
         return
 
     client = TelegramClient(
@@ -80,54 +77,64 @@ async def main():
     )
 
     try:
+        print("🚀 Connecting to Telegram...")
         await client.connect()
+        
         if not await client.is_user_authorized():
-            print("❌ سشن نامعتبر است!")
+            print("❌ Session is invalid or expired.")
             return
 
-        print("🚀 در حال جمع‌آوری کانفیگ‌ها...")
+        print("✅ Logged in successfully.")
+        
         all_raw_configs = []
         time_tag = get_persian_time()
-        print(f"⏰ زمان فعلی تهران: {time_tag}")
+        print(f"⏰ Persian Time: {time_tag}")
 
         for channel in CHANNELS:
-            print(f"📡 اسکن @{channel}...")
+            print(f"📡 Scanning @{channel}...")
             try:
                 async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
                     if message.text:
-                        # پیدا کردن لینک‌ها
+                        # ریجکس برای یافتن پروتکل‌ها
                         links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://\S+', message.text)
-
+                        
                         for conf in links:
-                            # تمیزکاری اولیه
-                            conf = conf.strip().split('\n')[0]
-                            # حذف کاراکترهای اضافه احتمالی انتهای لینک که در ریجکس گرفته شده
-                            conf = re.sub(r'[)\]}"\'>]+$', '', conf)
+                            # تمیزکاری: حذف کاراکترهای غیر URL از انتهای رشته
+                            # این بخش با دقت بیشتری کاراکترهای Markdown تلگرام را حذف می‌کند
+                            conf = re.split(r'[\s\n]+', conf)[0] # قطع کردن در اولین فضای خالی
+                            conf = re.sub(r'[)\]}"\'>,]+$', '', conf) # حذف علائم نگارشی از انتها
                             
-                            # اعمال تغییر نام اصولی
                             final_conf = add_name_to_config(conf, time_tag)
-                            
-                            all_raw_configs.append(final_conf)
+                            if final_conf:
+                                all_raw_configs.append(final_conf)
                 
-                await asyncio.sleep(random.randint(1, 2))
-            except Exception as e:
-                print(f"⚠️ خطا در کانال {channel}: {e}")
+                print(f"   found {len(all_raw_configs)} configs so far...")
+                await asyncio.sleep(random.randint(2, 5)) # مکث برای جلوگیری از فلود
 
-        # حذف تکراری‌ها
+            except Exception as e:
+                print(f"⚠️ Error scanning {channel}: {e}")
+
+        # حذف تکراری‌ها و محدود کردن تعداد
         unique_configs = list(dict.fromkeys(all_raw_configs))
         valid_configs = unique_configs[:TOTAL_FINAL_COUNT]
 
         if valid_configs:
             content_str = "\n".join(valid_configs)
+            # ذخیره نسخه Base64
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
-            with open("sub.txt", "w") as f:
+            with open("sub.txt", "w", encoding="utf-8") as f:
                 f.write(encoded)
-            print(f"✨ {len(valid_configs)} کانفیگ با تاریخ شمسی ذخیره شد.")
+            
+            # ذخیره نسخه بدون کدگذاری (اختیاری - برای دیباگ)
+            with open("sub_raw.txt", "w", encoding="utf-8") as f:
+                f.write(content_str)
+
+            print(f"✨ Success! Saved {len(valid_configs)} configs.")
         else:
-            print("⚠️ کانفیگی پیدا نشد.")
+            print("⚠️ No configs found.")
 
     except Exception as e:
-        print(f"⚠️ Error: {e}")
+        print(f"⚠️ Critical Error: {e}")
     finally:
         await client.disconnect()
 
