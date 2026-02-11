@@ -14,7 +14,7 @@ API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = ['napsternetv']
-SEARCH_LIMIT = 300
+SEARCH_LIMIT = 1000
 TOTAL_FINAL_COUNT = 100
 
 def is_server_alive(host, port):
