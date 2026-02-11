@@ -4,7 +4,7 @@ on:
   repository_dispatch:
     types: [run_update]
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/10 * * * *' # هر 30 دقیقه
   workflow_dispatch:
 
 permissions:
@@ -13,37 +13,47 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 1. اضافه کردن تایم‌اوت (حیاتی برای اسکریپت‌های تلگرام)
+    timeout-minutes: 5
+    
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # آپدیت به نسخه 4
         with:
-          fetch-depth: 0
+          ref: main # اطمینان از اینکه روی برنچ اصلی هستیم
+          # fetch-depth: 0 حذف شد چون برای این کار سنگین و غیرضروری است
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10' # نسخه جدیدتر و سریع‌تر
+          cache: 'pip' # 2. کش کردن پکیج‌ها برای سرعت بیشتر
 
       - name: Install dependencies
+        # نیازی به python-socks نیست مگر اینکه پروکسی ست کرده باشید
         run: |
-          pip install telethon python-socks[asyncio] jdatetime
+          pip install --upgrade pip
+          pip install telethon jdatetime 
 
       - name: Run collector script
         env:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           API_HASH: "6f3350e049ef37676b729241f5bc8c5e"
+          API_ID: 34146126 # اضافه کردن API_ID که در کد پایتون استفاده شده
         run: python collector.py
 
       - name: Commit and Push
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git fetch origin main
-          git reset --soft origin/main
+          
+          # 3. منطق کامیت ساده‌تر و امن‌تر
           git add sub.txt
-          if [ -n "$(git status --porcelain)" ]; then
+          
+          # بررسی تغییرات قبل از کامیت (جلوگیری از کامیت خالی)
+          if ! git diff --cached --quiet; then
             git commit -m "Update configs [$(date)]"
-            git push origin main --force
+            git push origin main
           else
             echo "No changes to commit"
           fi
