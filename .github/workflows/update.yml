@@ -24,9 +24,11 @@ jobs:
         with:
           python-version: '3.9'
 
+
       - name: Install dependencies
         run: |
-          pip install telethon python-socks[asyncio]
+          pip install telethon python-socks[asyncio] pytz
+          
 
       - name: Run collector script
         env:
