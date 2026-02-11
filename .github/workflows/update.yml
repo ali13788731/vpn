@@ -27,7 +27,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install telethon python-socks[asyncio] pytz
+          pip install telethon python-socks[asyncio]
           
 
       - name: Run collector script
