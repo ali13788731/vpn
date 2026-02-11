@@ -1,59 +1,37 @@
-name: V2Ray Collector
+name: Update NapsternetV Configs
 
 on:
   repository_dispatch:
-    types: [run_update]
-  schedule:
-    - cron: '*/10 * * * *' # هر 30 دقیقه
-  workflow_dispatch:
-
-permissions:
-  contents: write
+    types: [trigger_action] # این کلمه را در بخش Body سایت cron-job.org لازم داریم
+  workflow_dispatch: # برای تست دستی از داخل گیت‌هاب
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 1. اضافه کردن تایم‌اوت (حیاتی برای اسکریپت‌های تلگرام)
-    timeout-minutes: 5
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4 # آپدیت به نسخه 4
-        with:
-          ref: main # اطمینان از اینکه روی برنچ اصلی هستیم
-          # fetch-depth: 0 حذف شد چون برای این کار سنگین و غیرضروری است
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.10' # نسخه جدیدتر و سریع‌تر
-          cache: 'pip' # 2. کش کردن پکیج‌ها برای سرعت بیشتر
+          python-version: '3.9'
 
-      - name: Install dependencies
-        # نیازی به python-socks نیست مگر اینکه پروکسی ست کرده باشید
+      - name: Install Dependencies
         run: |
-          pip install --upgrade pip
-          pip install telethon jdatetime 
+          pip install -r requirements.txt
 
-      - name: Run collector script
+      - name: Run Scraper Script
         env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          API_HASH: "6f3350e049ef37676b729241f5bc8c5e"
-          API_ID: 34146126 # اضافه کردن API_ID که در کد پایتون استفاده شده
-        run: python collector.py
+        run: python main.py
 
       - name: Commit and Push
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          
-          # 3. منطق کامیت ساده‌تر و امن‌تر
+          git config --global user.name "GitHub Action Scraper"
+          git config --global user.email "actions@github.com"
           git add sub.txt
-          
-          # بررسی تغییرات قبل از کامیت (جلوگیری از کامیت خالی)
-          if ! git diff --cached --quiet; then
-            git commit -m "Update configs [$(date)]"
-            git push origin main
-          else
-            echo "No changes to commit"
-          fi
+          git commit -m "Update configs: $(date)" || echo "No changes to commit"
+          git push
