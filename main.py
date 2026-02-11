@@ -7,15 +7,23 @@ import urllib.parse
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-# دریافت مقادیر از محیط (Environment Variables) برای امنیت بیشتر
-# اگر در لوکال تست می‌کنید مقادیر پیش‌فرض را جایگزین کنید
-API_ID = int(os.environ.get("API_ID", 34146126))
-API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
+# --- اصلاحیه شروع شد ---
+# تابع کمکی برای دریافت امن متغیرها
+def get_env_or_default(key, default_value):
+    value = os.environ.get(key)
+    # اگر مقدار وجود داشت و خالی نبود برگردان، وگرنه پیش‌فرض را بده
+    return value if value and value.strip() else default_value
+
+# دریافت مقادیر (با حل مشکل ارور int خالی)
+raw_api_id = get_env_or_default("API_ID", "34146126")
+API_ID = int(raw_api_id)
+
+API_HASH = get_env_or_default("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
+# --- اصلاحیه تمام شد ---
 
 CHANNEL_ID = 'napsternetv'
 
-# رجکس‌ها
 VLESS_REGEX = r'vless://[a-zA-Z0-9@.:?=&%#_-]+'
 VMESS_REGEX = r'vmess://[a-zA-Z0-9+/=]+'
 
