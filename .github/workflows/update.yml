@@ -1,40 +1,49 @@
-name: V2Ray Collector Professional
+name: V2Ray Collector
 
 on:
-  schedule:
-    - cron: '0 */1 * * *' # اجرا در هر ساعت
-  workflow_dispatch: # امکان اجرای دستی
+  repository_dispatch:
+    types: [run_update]
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write # اجازه نوشتن در مخزن برای رفع خطای 403
+  contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
 
-      - name: Install dependencies
-        run: |
-          pip install telethon python-socks[asyncio] jdatetime
+      - name: Install dependencies
+        run: |
+          pip install telethon python-socks[asyncio] jdatetime
 
-      - name: Run collector
-        env:
-          SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          API_ID: ${{ secrets.API_ID }}
-          API_HASH: ${{ secrets.API_HASH }}
-        run: python collector.py
+      - name: Run collector script
+        env:
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          API_HASH: "6f3350e049ef37676b729241f5bc8c5e"
+        run: python collector.py
 
-      - name: Commit and Push
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add sub.txt
-          # فقط اگر تغییری وجود داشت کامیت انجام شود
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Configs: $(date)" && git push origin main)
+      - name: Commit and Push
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git fetch origin main
+          git reset --soft origin/main
+          git add sub.txt
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Update configs [$(date)]"
+            git push origin main --force
+          else
+            echo "No changes to commit"
+          fi
