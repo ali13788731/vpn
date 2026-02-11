@@ -10,9 +10,9 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 # --- تنظیمات امنیتی (از Secrets خوانده می‌شود) ---
-API_ID = int(os.environ.get("API_ID", 0))
-API_HASH = os.environ.get("API_HASH", "")
-SESSION_STRING = os.environ.get("SESSION_STRING", "")
+API_ID = 34146126
+API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
+SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = ['napsternetv']
 SEARCH_LIMIT = 300
