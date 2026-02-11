@@ -4,7 +4,8 @@ import base64
 import asyncio
 import socket
 import random
-import jdatetime  # کتابخانه برای تاریخ شمسی
+from datetime import datetime
+from zoneinfo import ZoneInfo  # پایتون 3.9+
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpFull
@@ -15,8 +16,8 @@ API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = ['napsternetv']
-SEARCH_LIMIT = 700
-TOTAL_FINAL_COUNT = 200
+SEARCH_LIMIT = 300
+TOTAL_FINAL_COUNT = 100
 
 def is_server_alive(host, port):
     try:
@@ -26,6 +27,17 @@ def is_server_alive(host, port):
         return True
     except:
         return False
+
+# تابع برای گرفتن زمان تهران
+def get_tehran_time():
+    try:
+        tehran_tz = ZoneInfo("Asia/Tehran")
+        now = datetime.now(tehran_tz)
+        # فرمت خروجی: 2024-05-20 14:30
+        return now.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        # اگر مشکلی در تایم‌زون بود، ساعت جهانی را می‌گیرد
+        return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 async def main():
     if not SESSION_STRING:
@@ -48,9 +60,8 @@ async def main():
         print("🚀 در حال جمع‌آوری کانفیگ‌ها...")
         all_raw_configs = []
 
-        # دریافت تاریخ و ساعت شمسی جاری برای کل این اجرا
-        # فرمت: 1402-11-23_10:30
-        current_fa_date = jdatetime.datetime.now().strftime("%Y-%m-%d_%H:%M")
+        # دریافت زمان فعلی برای استفاده در نام کانفیگ‌ها
+        time_tag = get_tehran_time()
 
         for channel in CHANNELS:
             print(f"📡 اسکن @{channel}...")
@@ -64,20 +75,20 @@ async def main():
                             conf = conf.strip().split('\n')[0]
                             conf = re.sub(r'[)\]}"\'>]+$', '', conf)
                             
-                            # --- بخش اصلاح شده برای اضافه کردن تاریخ شمسی ---
-                            try:
-                                # جدا کردن نام کانفیگ (اگر وجود داشته باشد) از بدنه لینک
+                            # --- اصلاح نام و افزودن تاریخ ---
+                            # نکته: vmess ساختار JSON Base64 دارد و تغییر نام آن پیچیده است و معمولا تغییر داده نمی‌شود
+                            # اما برای بقیه پروتکل‌ها (vless, trojan, ss, etc) نام بعد از # قرار می‌گیرد.
+                            
+                            if not conf.startswith("vmess://"):
+                                # بررسی وجود علامت # (Remark)
                                 if "#" in conf:
-                                    # اگر قبلاً # دارد، تاریخ را به انتهای نام فعلی اضافه کن
-                                    # برای جلوگیری از تکرار تاریخ اگر قبلاً اضافه شده باشد، چک نمی‌کنیم (ساده‌سازی)
-                                    conf = f"{conf}_{current_fa_date}"
+                                    # اگر نام دارد، تاریخ را به انتهای آن اضافه کن
+                                    # مثال: vless://...@...?#ExistingName | 2024-01-01 12:00
+                                    if f"| {time_tag}" not in conf: # جلوگیری از تکرار اگر قبلا اضافه شده
+                                        conf = f"{conf} | {time_tag}"
                                 else:
-                                    # اگر نام ندارد، یک نام تصادفی + تاریخ اضافه کن
-                                    # نکته: برای vmess معمولا نام داخل json است اما اکثر کلاینت‌ها # را در انتها قبول می‌کنند
-                                    conf = f"{conf}#Config_{random.randint(100, 999)}_{current_fa_date}"
-                            except Exception as e:
-                                # در صورت بروز خطا در تغییر نام، همان کانفیگ اصلی را نگه دار
-                                pass
+                                    # اگر نام ندارد، یک نام جدید با تاریخ بساز
+                                    conf = f"{conf}#Network_{random.randint(10,99)}_{time_tag}"
                             
                             all_raw_configs.append(conf)
                 
@@ -93,7 +104,7 @@ async def main():
             if len(valid_configs) >= TOTAL_FINAL_COUNT:
                 break
             
-            # اینجا فقط کانفیگ را اضافه می‌کنیم (بررسی پینگ اختیاری است و کامنت شده)
+            # افزودن بدون تست پینگ (برای سرعت بیشتر طبق کد قبلی شما)
             valid_configs.append(conf)
 
         if valid_configs:
@@ -101,7 +112,7 @@ async def main():
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
             with open("sub.txt", "w") as f:
                 f.write(encoded)
-            print(f"✨ {len(valid_configs)} کانفیگ با تاریخ شمسی ({current_fa_date}) ذخیره شد.")
+            print(f"✨ {len(valid_configs)} کانفیگ با تاریخ {time_tag} ذخیره شد.")
         else:
             print("⚠️ کانفیگی پیدا نشد.")
 
