@@ -12,10 +12,16 @@ from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpFull
 
 # --- تنظیمات اولیه ---
-# اولویت با متغیرهای محیطی است، اگر نبود از مقادیر پیش‌فرض استفاده می‌کند
-API_ID = int(os.environ.get("API_ID", 34146126)) 
-API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
+# تغییر مهم: استفاده از or برای مدیریت رشته‌های خالی
+raw_api_id = os.environ.get("API_ID")
+API_ID = int(raw_api_id) if raw_api_id and raw_api_id.strip() else 34146126
+
+raw_api_hash = os.environ.get("API_HASH")
+API_HASH = raw_api_hash if raw_api_hash and raw_api_hash.strip() else "6f3350e049ef37676b729241f5bc8c5e"
+
 SESSION_STRING = os.environ.get("SESSION_STRING")
+
+
 
 CHANNELS = ['napsternetv', 'v2rayng_org', 'v2ray_outlineir'] # می‌توانید کانال‌های بیشتری اضافه کنید
 SEARCH_LIMIT = 500  # تعداد پیام برای بررسی در هر کانال
