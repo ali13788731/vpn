@@ -4,7 +4,7 @@ on:
   repository_dispatch:
     types: [run_update]
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/10 * * * *' # اجرا هر ۱۰ دقیقه
   workflow_dispatch:
 
 permissions:
@@ -17,18 +17,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # برای جلوگیری از تداخل در push
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
-
+      # --- تغییر اصلی اینجاست ---
       - name: Install dependencies
         run: |
-          pip install telethon python-socks[asyncio]
-          
+          pip install telethon python-socks[asyncio] jdatetime
+      # ---------------------------
 
       - name: Run collector script
         env:
@@ -40,12 +40,16 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          # اجبار گیت به هماهنگی با سرور بدون درگیری
+          
+          # دریافت آخرین تغییرات برای جلوگیری از تداخل
           git fetch origin main
           git reset --soft origin/main
-          # اضافه کردن فایل و آپلود
+          
+          # اضافه کردن فایل خروجی
           git add sub.txt
-          if [ -n "$(git status --porcelain)" ]; then
+          
+          # بررسی اینکه آیا تغییری وجود دارد یا خیر
+          if ! git diff --cached --quiet; then
             git commit -m "Update configs [$(date)]"
             git push origin main --force
           else
