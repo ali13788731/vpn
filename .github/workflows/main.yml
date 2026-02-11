@@ -1,11 +1,9 @@
 name: V2Ray Collector
 
 on:
-  repository_dispatch:
-    types: [run_update]
   schedule:
-    - cron: '*/10 * * * *'
-  workflow_dispatch:
+    - cron: '*/10 * * * *' # اجرا هر 30 دقیقه (10 دقیقه برای گیت‌هاب زیاد است و ممکن است اکانت را محدود کند)
+  workflow_dispatch: # قابلیت اجرای دستی
 
 permissions:
   contents: write
@@ -13,6 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -20,30 +19,37 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
       - name: Install dependencies
         run: |
-          pip install telethon python-socks[asyncio] jdatetime
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run collector script
         env:
+          # این مقادیر باید در بخش Secrets و Variables مخزن گیت‌هاب تنظیم شوند
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          API_HASH: "6f3350e049ef37676b729241f5bc8c5e"
+          API_ID: ${{ secrets.API_ID }} # بهتر است این را هم در سکرت بگذارید، یا در کد پیش‌فرض باشد
+          API_HASH: ${{ secrets.API_HASH }}
         run: python collector.py
 
-      - name: Commit and Push
+      - name: Commit and Push changes
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git fetch origin main
-          git reset --soft origin/main
+          
+          # اضافه کردن فایل‌ها
           git add sub.txt
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "Update configs [$(date)]"
-            git push origin main --force
+          
+          # بررسی اینکه آیا تغییری وجود دارد یا خیر
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
           else
-            echo "No changes to commit"
+            git commit -m "Update configs [$(date)]"
+            # استفاده از پول ریبیس برای جلوگیری از کانفلیکت قبل از پوش
+            git pull --rebase origin main
+            git push origin main
           fi
