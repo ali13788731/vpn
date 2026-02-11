@@ -28,13 +28,17 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+
+
+
       - name: Run collector script
         env:
-          # این مقادیر باید در بخش Secrets و Variables مخزن گیت‌هاب تنظیم شوند
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          API_ID: ${{ secrets.API_ID }} # بهتر است این را هم در سکرت بگذارید، یا در کد پیش‌فرض باشد
-          API_HASH: ${{ secrets.API_HASH }}
+          # خطوط API_ID و API_HASH را حذف کردم تا اگر در سکرت نبودند، پایتون از پیش‌فرض خودش استفاده کند
         run: python collector.py
+
+
+
 
       - name: Commit and Push changes
         run: |
