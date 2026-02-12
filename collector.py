@@ -102,7 +102,8 @@ async def main():
                 async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
                     if message.text:
                         # ریجکس برای یافتن پروتکل‌ها
-                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://\S+', message.text)
+                        # links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://\S+', message.text)
+                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[^\s\t\n]+', message.text)
                         
                         for conf in links:
                             # تمیزکاری: حذف کاراکترهای غیر URL از انتهای رشته
