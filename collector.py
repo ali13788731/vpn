@@ -23,7 +23,7 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 
 
 
-CHANNELS = ['napsternetv', 'FreakConfig', 'Configir98'] # می‌توانید کانال‌های بیشتری اضافه کنید
+CHANNELS = ['napsternetv', 'FreakConfig', 'Configir98']
 SEARCH_LIMIT = 1000  # تعداد پیام برای بررسی در هر کانال
 TOTAL_FINAL_COUNT = 200 # تعداد نهایی کانفیگ‌ها
 
