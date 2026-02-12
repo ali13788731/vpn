@@ -24,7 +24,7 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 
 
 CHANNELS = ['napsternetv'] # می‌توانید کانال‌های بیشتری اضافه کنید
-SEARCH_LIMIT = 500  # تعداد پیام برای بررسی در هر کانال
+SEARCH_LIMIT = 1000  # تعداد پیام برای بررسی در هر کانال
 TOTAL_FINAL_COUNT = 200 # تعداد نهایی کانفیگ‌ها
 
 def get_persian_time():
