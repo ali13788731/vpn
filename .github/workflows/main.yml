@@ -1,49 +1,39 @@
-name: V2Ray Collector
+name: Iran-Special Collector
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # تلاش برای اجرا هر ۱۰ دقیقه
-  workflow_dispatch: # قابلیت اجرای دستی و اتصال به سرویس خارجی
+    - cron: '0 */2 * * *' # هر دو ساعت یکبار
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  run-bot:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip' # فعال‌سازی کش برای دانلود نشدن مجدد کتابخانه‌ها
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install telethon jdatetime tzdata aiohttp
 
-      - name: Run collector script
+      - name: Run Collector
         env:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
-          # اگر API_ID را در سکرت نگذاشتید، کد پایتون از پیش‌فرض استفاده می‌کند
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
-        # مطمئن شوید نام فایل در اینجا با نام فایل شما (مثلا main.py) یکی باشد
-        run: python collector.py 
+        run: python collector.py
 
-      - name: Commit and Push changes
+      - name: Push to Repo
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git add sub.txt
-          # بررسی تغییرات برای جلوگیری از ارور empty commit
-          if git diff --staged --quiet; then
-            echo "تغییری در کانفیگ‌ها یافت نشد."
-          else
-            git commit -m "Update: $(date +'%Y-%m-%d %H:%M')"
-            git push --force
-          fi
+          git config --global user.name "IranCheckBot"
+          git config --global user.email "bot@github.com"
+          git add sub.txt sub_raw.txt
+          git commit -m "Update Iran-Working Configs: $(date)" || echo "No changes"
+          git push
