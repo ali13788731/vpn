@@ -1,9 +1,9 @@
-name: V2Ray Collector Check
+name: V2Ray Collector
 
 on:
   schedule:
-    - cron: '0 */10 * * *' # هر 4 ساعت (تست پینگ زمان‌بر است، 10 دقیقه خیلی زود است)
-  workflow_dispatch:
+    - cron: '*/10 * * * *' # تلاش برای اجرا هر ۱۰ دقیقه
+  workflow_dispatch: # قابلیت اجرای دستی و اتصال به سرویس خارجی
 
 permissions:
   contents: write
@@ -20,27 +20,30 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
+          cache: 'pip' # فعال‌سازی کش برای دانلود نشدن مجدد کتابخانه‌ها
 
       - name: Install dependencies
         run: |
-          pip install telethon jdatetime
+          pip install -r requirements.txt
 
       - name: Run collector script
         env:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          # اگر API_ID را در سکرت نگذاشتید، کد پایتون از پیش‌فرض استفاده می‌کند
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
+        # مطمئن شوید نام فایل در اینجا با نام فایل شما (مثلا main.py) یکی باشد
         run: python collector.py 
 
       - name: Commit and Push changes
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git add sub.txt sub_raw.txt
+          git add sub.txt
+          # بررسی تغییرات برای جلوگیری از ارور empty commit
           if git diff --staged --quiet; then
-            echo "No changes detected."
+            echo "تغییری در کانفیگ‌ها یافت نشد."
           else
-            git commit -m "Updated Configs: $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Update: $(date +'%Y-%m-%d %H:%M')"
             git push --force
           fi
