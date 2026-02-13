@@ -2,7 +2,7 @@ name: V2Ray Collector Check
 
 on:
   schedule:
-    - cron: '0 */4 * * *' # هر 4 ساعت (تست پینگ زمان‌بر است، 10 دقیقه خیلی زود است)
+    - cron: '0 */10 * * *' # هر 4 ساعت (تست پینگ زمان‌بر است، 10 دقیقه خیلی زود است)
   workflow_dispatch:
 
 permissions:
