@@ -1,0 +1,1 @@
+vless://bf37aea5-57da-48ec-9f46-eb40809d69e8@my-o11.tungates.com:1717?security=none&type=tcp&headerType=http&path=%2F&host=mir-data-61.myket.ir#IR_OK%20%7C%201404-11-24%2013%3A40
