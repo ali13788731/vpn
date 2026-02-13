@@ -1,8 +1,10 @@
 import os
 import re
 import base64
+import json
 import asyncio
-import random  # <--- این کتابخانه برای مخلوط کردن ضروری است
+import random
+import socket
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import jdatetime
@@ -21,26 +23,66 @@ API_HASH = raw_api_hash if raw_api_hash and raw_api_hash.strip() else "6f3350e04
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = ['napsternetv', 'FreakConfig', 'Configir98']
-SEARCH_LIMIT = 1000
+SEARCH_LIMIT = 500  # کمی کمتر کردم که سرعت بالاتر برود
 TOTAL_FINAL_COUNT = 200
 
-# ... (توابع get_persian_time و add_name_to_config بدون تغییر باقی می‌مانند) ...
 def get_persian_time():
     try:
         tehran_tz = ZoneInfo("Asia/Tehran")
         now_tehran = datetime.now(tehran_tz)
         j_date = jdatetime.datetime.fromgregorian(datetime=now_tehran)
         return j_date.strftime("%Y-%m-%d %H:%M")
-    except Exception:
+    except Exception as e:
         return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+async def check_connectivity(host, port, timeout=1.5):
+    """
+    تست اتصال به سرور (TCP Ping).
+    اگر پورت باز باشد True برمی‌گرداند.
+    """
+    try:
+        # استفاده از asyncio برای سرعت بالاتر و غیرمسدود کننده
+        future = asyncio.open_connection(host, port)
+        reader, writer = await asyncio.wait_for(future, timeout=timeout)
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except:
+        return False
+
+def parse_config_host_port(conf):
+    """
+    تلاش برای استخراج IP و Port از انواع کانفیگ‌ها
+    """
+    try:
+        if conf.startswith("vmess://"):
+            # دیکود کردن بخش بعد از vmess://
+            b64_str = conf[8:]
+            # افزودن پدینگ در صورت نیاز
+            missing_padding = len(b64_str) % 4
+            if missing_padding:
+                b64_str += '=' * (4 - missing_padding)
+            
+            decoded = base64.b64decode(b64_str).decode('utf-8')
+            data = json.loads(decoded)
+            return data.get('add'), int(data.get('port'))
+        
+        else:
+            # برای Vless, Trojan, SS و ...
+            parsed = urlparse(conf)
+            return parsed.hostname, parsed.port
+    except:
+        return None, None
 
 def add_name_to_config(conf, time_tag):
     conf = conf.strip()
     if conf.startswith("vmess://"):
-        return conf
+        return conf # دستکاری نام VMess پیچیده‌تر است، فعلا رد می‌کنیم
+
     try:
         parsed = urlparse(conf)
         current_name = unquote(parsed.fragment).strip()
+        
         if not current_name:
             new_name = f"@{time_tag}"
         else:
@@ -48,6 +90,7 @@ def add_name_to_config(conf, time_tag):
                 new_name = f"{current_name} | {time_tag}"
             else:
                 new_name = current_name
+
         final_fragment = quote(new_name)
         new_parsed = parsed._replace(fragment=final_fragment)
         return urlunparse(new_parsed)
@@ -74,63 +117,62 @@ async def main():
             print("❌ Session is invalid.")
             return
 
-        print("✅ Logged in successfully.")
+        print("✅ Logged in.")
         
-        all_raw_configs = []
+        all_valid_configs = []
         time_tag = get_persian_time()
+        
+        # برای جلوگیری از تکراری‌ها قبل از تست
+        seen_links = set()
 
-        # 1. جمع‌آوری تمام کانفیگ‌ها از تمام کانال‌ها
         for channel in CHANNELS:
             print(f"📡 Scanning @{channel}...")
-            channel_configs = [] # لیست موقت برای هر کانال
-            try:
-                async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
-                    if message.text:
-                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[^\s\t\n]+', message.text)
+            async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
+                if message.text:
+                    links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[^\s\t\n]+', message.text)
+                    
+                    for conf in links:
+                        conf = re.split(r'[\s\n]+', conf)[0]
+                        conf = re.sub(r'[)\]}"\'>,]+$', '', conf)
+
+                        if conf in seen_links:
+                            continue
                         
-                        for conf in links:
-                            conf = re.split(r'[\s\n]+', conf)[0]
-                            conf = re.sub(r'[)\]}"\'>,]+$', '', conf)
+                        seen_links.add(conf)
+
+                        # 1. استخراج آدرس سرور
+                        host, port = parse_config_host_port(conf)
+                        
+                        if host and port:
+                            # 2. تست اتصال (Ping)
+                            is_alive = await check_connectivity(host, port)
                             
-                            final_conf = add_name_to_config(conf, time_tag)
-                            if final_conf:
-                                channel_configs.append(final_conf)
-                
-                print(f"   found {len(channel_configs)} configs in {channel}")
-                
-                # اضافه کردن کانفیگ‌های این کانال به لیست اصلی
-                all_raw_configs.extend(channel_configs)
-                
-                await asyncio.sleep(random.randint(2, 5))
+                            if is_alive:
+                                # 3. تغییر نام و افزودن به لیست نهایی
+                                final_conf = add_name_to_config(conf, time_tag)
+                                all_valid_configs.append(final_conf)
+                                # چاپ یک نقطه برای نمایش پیشرفت
+                                print(".", end="", flush=True)
+            
+            print(f"\n   Found {len(all_valid_configs)} alive configs so far from {channel}")
+            await asyncio.sleep(random.randint(2, 4))
 
-            except Exception as e:
-                print(f"⚠️ Error scanning {channel}: {e}")
+        # محدود کردن به تعداد درخواستی
+        final_list = all_valid_configs[:TOTAL_FINAL_COUNT]
 
-        # 2. حذف تکراری‌ها
-        # استفاده از dict برای حفظ ترتیب اولیه مهم نیست چون قراره شافل کنیم، ولی برای حذف تکراری عالیه
-        unique_configs = list(dict.fromkeys(all_raw_configs))
-        print(f"📊 Total unique configs found: {len(unique_configs)}")
-
-        # 3. مخلوط کردن (Shuffle) - این بخش حیاتی است
-        # این کار باعث میشه کانفیگ‌های کانال دوم و سوم با کانال اول قاطی بشن
-        random.shuffle(unique_configs)
-        print("🔀 Configs shuffled ensures fairness between channels.")
-
-        # 4. انتخاب تعداد نهایی
-        valid_configs = unique_configs[:TOTAL_FINAL_COUNT]
-
-        if valid_configs:
-            content_str = "\n".join(valid_configs)
+        if final_list:
+            content_str = "\n".join(final_list)
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+            
             with open("sub.txt", "w", encoding="utf-8") as f:
                 f.write(encoded)
             
             with open("sub_raw.txt", "w", encoding="utf-8") as f:
                 f.write(content_str)
 
-            print(f"✨ Success! Saved {len(valid_configs)} mixed configs.")
+            print(f"✨ Success! Saved {len(final_list)} WORKING configs.")
         else:
-            print("⚠️ No configs found.")
+            print("⚠️ No working configs found.")
 
     except Exception as e:
         print(f"⚠️ Critical Error: {e}")
