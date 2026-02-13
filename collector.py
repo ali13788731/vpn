@@ -8,20 +8,16 @@ import random
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import jdatetime
-from urllib.parse import urlparse, unquote, quote, urlunparse
+from urllib.parse import urlparse, quote, urlunparse
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-# --- تنظیمات ---
-CHANNELS = [
-    'napsternetv', 'FreakConfig', 'Configir98', 
-    'V2rayNGn', 'free_v2rayyy', 'DirectVPN', 
-    'v2rayng_org', 'v2ray_outlineir'
-]
-SEARCH_LIMIT = 100 
-MAX_TO_TEST = 100 # تعداد کانفیگ برای تست
-FINAL_COUNT = 40  # تعداد نهایی برای ذخیره
-TIMEOUT = 3       # ثانیه انتظار برای تست اتصال
+# --- تنظیمات سرعت ---
+CHANNELS = ['napsternetv', 'FreakConfig', 'Configir98', 'V2rayNGn', 'free_v2rayyy', 'v2rayng_org']
+SEARCH_LIMIT = 40  # کاهش تعداد پیام برای افزایش سرعت (فقط جدیدترین‌ها)
+MAX_TO_TEST = 60   # تعداد تست همزمان
+FINAL_COUNT = 30 
+TIMEOUT = 2        # کاهش زمان انتظار برای هر تست (اگر در ۲ ثانیه وصل نشود، یعنی کنده)
 
 def get_persian_time():
     try:
@@ -30,153 +26,86 @@ def get_persian_time():
         return jdatetime.datetime.fromgregorian(datetime=now_tehran).strftime("%Y-%m-%d %H:%M")
     except: return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-def clean_vmess(conf):
-    """دی‌کد کردن لینک‌های vmess برای استخراج IP و Port"""
-    try:
-        if not conf.startswith("vmess://"): return None
-        b64 = conf.replace("vmess://", "")
-        # اصلاح پدینگ Base64
-        padding = len(b64) % 4
-        if padding: b64 += "=" * (4 - padding)
-        
-        decoded = base64.b64decode(b64).decode('utf-8')
-        data = json.loads(decoded)
-        return data.get('add'), data.get('port'), conf
-    except:
-        return None
-
 def parse_config(conf):
-    """استخراج هاست و پورت از انواع لینک‌ها"""
     try:
-        # اگر Vmess بود
         if conf.startswith("vmess://"):
-            return clean_vmess(conf)
-            
-        # اگر Vless/Trojan/SS بود
+            b64 = conf.replace("vmess://", "")
+            padding = len(b64) % 4
+            if padding: b64 += "=" * (4 - padding)
+            data = json.loads(base64.b64decode(b64).decode('utf-8'))
+            return data.get('add'), data.get('port'), conf
         parsed = urlparse(conf)
-        host = parsed.hostname
-        port = parsed.port
-        if host and port:
-            return host, port, conf
+        if parsed.hostname and parsed.port:
+            return parsed.hostname, parsed.port, conf
     except: pass
     return None
 
-async def check_connection(host, port):
-    """تست اتصال واقعی با سوکت (سریع و دقیق)"""
+async def check_connection(target):
+    host, port, link = target
     try:
-        # اجرا در ترد جداگانه برای جلوگیری از قفل شدن برنامه
-        loop = asyncio.get_running_loop()
-        start = loop.time()
-        
-        # تلاش برای اتصال TCP
-        await asyncio.wait_for(
-            loop.sock_connect(socket.socket(socket.AF_INET, socket.SOCK_STREAM), (host, int(port))),
-            timeout=TIMEOUT
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, int(port)), timeout=TIMEOUT
         )
-        return True
-    except:
-        return False
+        writer.close()
+        await writer.wait_closed()
+        return link
+    except: return None
+
+async def scrape_channel(client, channel):
+    """اسکن سریع یک کانال"""
+    links = []
+    try:
+        async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
+            if message.text:
+                found = re.findall(r'(?:vmess|vless|ss|trojan|tuic)://[^\s\t\n]+', message.text)
+                links.extend([l.rstrip(')]}"\'>,') for l in found])
+    except: pass
+    return links
 
 async def main():
     API_ID = int(os.environ.get("API_ID", 34146126))
     API_HASH = os.environ.get("API_HASH", "6f3350e049ef37676b729241f5bc8c5e")
     SESSION_STRING = os.environ.get("SESSION_STRING")
     
-    if not SESSION_STRING:
-        print("❌ Error: SESSION_STRING missing.")
-        return
-
     client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+    await client.connect()
     
-    try:
-        print("🚀 Connecting to Telegram...")
-        await client.connect()
-        
-        raw_links = []
-        
-        # ۱. جمع‌آوری لینک‌ها
-        for channel in CHANNELS:
-            print(f"📥 Scanning: {channel}")
-            try:
-                async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
-                    if message.text:
-                        found = re.findall(r'(?:vmess|vless|ss|trojan|tuic)://[a-zA-Z0-9\-\._~:/\?#\[\]@!$&\'\(\)\*\+,;=%]+', message.text)
-                        for link in found:
-                            raw_links.append(link.split()[0]) # تمیزکاری اولیه
-            except Exception as e:
-                print(f"⚠️ Skip {channel}: {e}")
+    # ۱. اسکن همزمان تمام کانال‌ها (Parallel Scraping)
+    print("⚡️ Fast Scraping...")
+    tasks = [scrape_channel(client, ch) for ch in CHANNELS]
+    results = await asyncio.gather(*tasks)
+    
+    raw_links = list(set([item for sublist in results for item in sublist]))
+    print(f"📊 Extracted {len(raw_links)} links.")
 
-        unique_links = list(set(raw_links))
-        print(f"📊 Found {len(unique_links)} unique links. Parsing...")
+    # ۲. آماده‌سازی برای تست
+    parsed = [parse_config(l) for l in raw_links if parse_config(l)]
+    random.shuffle(parsed)
+    targets = parsed[:MAX_TO_TEST]
 
-        # ۲. پردازش و استخراج IPها
-        parsed_configs = []
-        for link in unique_links:
-            res = parse_config(link)
-            if res:
-                parsed_configs.append(res) # (host, port, original_link)
+    # ۳. تست همزمان اتصال (Parallel Testing)
+    print(f"🔍 Testing {len(targets)} servers...")
+    test_tasks = [check_connection(t) for t in targets]
+    valid_configs = await asyncio.gather(*test_tasks)
+    
+    final_configs = [c for c in valid_configs if c][:FINAL_COUNT]
 
-        # شافل کردن برای تنوع
-        random.shuffle(parsed_configs)
-        targets = parsed_configs[:MAX_TO_TEST]
-
-        print(f"🔍 Testing connectivity for {len(targets)} servers...")
-
-        # ۳. تست سرعت بالا (همزمان)
-        valid_configs = []
-        
-        # تابع کمکی برای تسک
-        async def tester(target):
-            host, port, link = target
-            if not host or not port: return None
-            # فیلتر کردن لوکال هاست
-            if "127.0.0.1" in host or "localhost" in host: return None
+    # ۴. ذخیره‌سازی
+    if final_configs:
+        time_tag = get_persian_time()
+        output = []
+        for c in final_configs:
+            if not c.startswith("vmess://"):
+                p = urlparse(c)
+                output.append(urlunparse(p._replace(fragment=quote(f"IR_FAST | {time_tag}"))))
+            else: output.append(c)
             
-            is_up = await check_connection(host, port)
-            if is_up:
-                print(f"✅ UP: {host}:{port}")
-                return link
-            else:
-                return None
-
-        # اجرای تست‌ها
-        tasks = [tester(t) for t in targets]
-        results = await asyncio.gather(*tasks)
-        
-        valid_configs = [r for r in results if r is not None]
-        
-        # ۴. ذخیره‌سازی
-        if valid_configs:
-            valid_configs = valid_configs[:FINAL_COUNT]
-            time_tag = get_persian_time()
-            
-            # اضافه کردن نام به کانفیگ‌ها
-            final_list = []
-            for conf in valid_configs:
-                # برای Vless/Trojan نام را عوض میکنیم
-                if not conf.startswith("vmess://"):
-                    try:
-                        parsed = urlparse(conf)
-                        new_conf = urlunparse(parsed._replace(fragment=quote(f"IR_Gold | {time_tag}")))
-                        final_list.append(new_conf)
-                    except: final_list.append(conf)
-                else:
-                    final_list.append(conf)
-
-            content = "\n".join(final_list)
-            
-            with open("sub.txt", "w") as f:
-                f.write(base64.b64encode(content.encode()).decode())
-            with open("sub_raw.txt", "w") as f:
-                f.write(content)
-                
-            print(f"🎉 SUCCESS: {len(final_list)} configs saved!")
-        else:
-            print("❌ Zero working configs found. Check your internet or channels.")
-            with open("sub.txt", "w") as f: f.write("")
-
-    finally:
-        await client.disconnect()
+        content = "\n".join(output)
+        with open("sub.txt", "w") as f: f.write(base64.b64encode(content.encode()).decode())
+        with open("sub_raw.txt", "w") as f: f.write(content)
+        print(f"✨ Done! Found {len(output)} active configs.")
+    
+    await client.disconnect()
 
 if __name__ == '__main__':
     asyncio.run(main())
