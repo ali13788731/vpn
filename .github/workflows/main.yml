@@ -2,7 +2,7 @@ name: V2Ray Collector
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # تلاش برای اجرا هر ۱۰ دقیقه
+    - cron: '*/30 * * * *' # تلاش برای اجرا هر ۱۰ دقیقه
   workflow_dispatch: # قابلیت اجرای دستی و اتصال به سرویس خارجی
 
 permissions:
