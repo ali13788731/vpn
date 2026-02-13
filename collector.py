@@ -1,10 +1,8 @@
 import os
 import re
 import base64
-import json
 import asyncio
 import random
-import socket
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import jdatetime
@@ -14,6 +12,7 @@ from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpFull
 
 # --- تنظیمات اولیه ---
+# تغییر مهم: استفاده از or برای مدیریت رشته‌های خالی
 raw_api_id = os.environ.get("API_ID")
 API_ID = int(raw_api_id) if raw_api_id and raw_api_id.strip() else 34146126
 
@@ -22,84 +21,58 @@ API_HASH = raw_api_hash if raw_api_hash and raw_api_hash.strip() else "6f3350e04
 
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
-CHANNELS = ['napsternetv', 'FreakConfig', 'Configir98']
-SEARCH_LIMIT = 500  # کمی کمتر کردم که سرعت بالاتر برود
-TOTAL_FINAL_COUNT = 200
+
+
+CHANNELS = ['napsternetv']
+SEARCH_LIMIT = 1000  # تعداد پیام برای بررسی در هر کانال
+TOTAL_FINAL_COUNT = 200 # تعداد نهایی کانفیگ‌ها
 
 def get_persian_time():
     try:
+        # استفاده از کتابخانه tzdata برای اطمینان از وجود منطقه زمانی
         tehran_tz = ZoneInfo("Asia/Tehran")
         now_tehran = datetime.now(tehran_tz)
         j_date = jdatetime.datetime.fromgregorian(datetime=now_tehran)
         return j_date.strftime("%Y-%m-%d %H:%M")
     except Exception as e:
+        print(f"⚠️ Time Error: {e}")
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-async def check_connectivity(host, port, timeout=1.5):
-    """
-    تست اتصال به سرور (TCP Ping).
-    اگر پورت باز باشد True برمی‌گرداند.
-    """
-    try:
-        # استفاده از asyncio برای سرعت بالاتر و غیرمسدود کننده
-        future = asyncio.open_connection(host, port)
-        reader, writer = await asyncio.wait_for(future, timeout=timeout)
-        writer.close()
-        await writer.wait_closed()
-        return True
-    except:
-        return False
-
-def parse_config_host_port(conf):
-    """
-    تلاش برای استخراج IP و Port از انواع کانفیگ‌ها
-    """
-    try:
-        if conf.startswith("vmess://"):
-            # دیکود کردن بخش بعد از vmess://
-            b64_str = conf[8:]
-            # افزودن پدینگ در صورت نیاز
-            missing_padding = len(b64_str) % 4
-            if missing_padding:
-                b64_str += '=' * (4 - missing_padding)
-            
-            decoded = base64.b64decode(b64_str).decode('utf-8')
-            data = json.loads(decoded)
-            return data.get('add'), int(data.get('port'))
-        
-        else:
-            # برای Vless, Trojan, SS و ...
-            parsed = urlparse(conf)
-            return parsed.hostname, parsed.port
-    except:
-        return None, None
-
 def add_name_to_config(conf, time_tag):
+    """
+    نام کانفیگ را اصولی تغییر می‌دهد.
+    """
     conf = conf.strip()
+    # وی‌مس معمولا جیسون Base64 است و نباید دستکاری URL شود
     if conf.startswith("vmess://"):
-        return conf # دستکاری نام VMess پیچیده‌تر است، فعلا رد می‌کنیم
+        return conf
 
     try:
         parsed = urlparse(conf)
+        
+        # دیکود کردن نام فعلی (fragment)
         current_name = unquote(parsed.fragment).strip()
         
         if not current_name:
             new_name = f"@{time_tag}"
         else:
+            # اگر تگ زمانی در نام نیست، اضافه کن
             if time_tag not in current_name:
                 new_name = f"{current_name} | {time_tag}"
             else:
                 new_name = current_name
 
+        # اینکود مجدد برای جلوگیری از خراب شدن لینک
         final_fragment = quote(new_name)
         new_parsed = parsed._replace(fragment=final_fragment)
         return urlunparse(new_parsed)
+        
     except Exception:
         return conf
 
 async def main():
     if not SESSION_STRING:
-        print("❌ SESSION_STRING Not Found!")
+        print("❌ SESSION_STRING Not Found! Please set it in GitHub Secrets.")
         return
 
     client = TelegramClient(
@@ -114,65 +87,58 @@ async def main():
         await client.connect()
         
         if not await client.is_user_authorized():
-            print("❌ Session is invalid.")
+            print("❌ Session is invalid or expired.")
             return
 
-        print("✅ Logged in.")
+        print("✅ Logged in successfully.")
         
-        all_valid_configs = []
+        all_raw_configs = []
         time_tag = get_persian_time()
-        
-        # برای جلوگیری از تکراری‌ها قبل از تست
-        seen_links = set()
+        print(f"⏰ Persian Time: {time_tag}")
 
         for channel in CHANNELS:
             print(f"📡 Scanning @{channel}...")
-            async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
-                if message.text:
-                    links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[^\s\t\n]+', message.text)
-                    
-                    for conf in links:
-                        conf = re.split(r'[\s\n]+', conf)[0]
-                        conf = re.sub(r'[)\]}"\'>,]+$', '', conf)
-
-                        if conf in seen_links:
-                            continue
+            try:
+                async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
+                    if message.text:
+                        # ریجکس برای یافتن پروتکل‌ها
+                        # links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://\S+', message.text)
+                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[^\s\t\n]+', message.text)
                         
-                        seen_links.add(conf)
-
-                        # 1. استخراج آدرس سرور
-                        host, port = parse_config_host_port(conf)
-                        
-                        if host and port:
-                            # 2. تست اتصال (Ping)
-                            is_alive = await check_connectivity(host, port)
+                        for conf in links:
+                            # تمیزکاری: حذف کاراکترهای غیر URL از انتهای رشته
+                            # این بخش با دقت بیشتری کاراکترهای Markdown تلگرام را حذف می‌کند
+                            conf = re.split(r'[\s\n]+', conf)[0] # قطع کردن در اولین فضای خالی
+                            conf = re.sub(r'[)\]}"\'>,]+$', '', conf) # حذف علائم نگارشی از انتها
                             
-                            if is_alive:
-                                # 3. تغییر نام و افزودن به لیست نهایی
-                                final_conf = add_name_to_config(conf, time_tag)
-                                all_valid_configs.append(final_conf)
-                                # چاپ یک نقطه برای نمایش پیشرفت
-                                print(".", end="", flush=True)
-            
-            print(f"\n   Found {len(all_valid_configs)} alive configs so far from {channel}")
-            await asyncio.sleep(random.randint(2, 4))
+                            final_conf = add_name_to_config(conf, time_tag)
+                            if final_conf:
+                                all_raw_configs.append(final_conf)
+                
+                print(f"   found {len(all_raw_configs)} configs so far...")
+                await asyncio.sleep(random.randint(2, 5)) # مکث برای جلوگیری از فلود
 
-        # محدود کردن به تعداد درخواستی
-        final_list = all_valid_configs[:TOTAL_FINAL_COUNT]
+            except Exception as e:
+                print(f"⚠️ Error scanning {channel}: {e}")
 
-        if final_list:
-            content_str = "\n".join(final_list)
+        # حذف تکراری‌ها و محدود کردن تعداد
+        unique_configs = list(dict.fromkeys(all_raw_configs))
+        valid_configs = unique_configs[:TOTAL_FINAL_COUNT]
+
+        if valid_configs:
+            content_str = "\n".join(valid_configs)
+            # ذخیره نسخه Base64
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
-            
             with open("sub.txt", "w", encoding="utf-8") as f:
                 f.write(encoded)
             
+            # ذخیره نسخه بدون کدگذاری (اختیاری - برای دیباگ)
             with open("sub_raw.txt", "w", encoding="utf-8") as f:
                 f.write(content_str)
 
-            print(f"✨ Success! Saved {len(final_list)} WORKING configs.")
+            print(f"✨ Success! Saved {len(valid_configs)} configs.")
         else:
-            print("⚠️ No working configs found.")
+            print("⚠️ No configs found.")
 
     except Exception as e:
         print(f"⚠️ Critical Error: {e}")
