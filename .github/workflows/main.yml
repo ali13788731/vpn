@@ -2,11 +2,11 @@ name: Iran-Special Collector
 
 on:
   schedule:
-    - cron: '0 */2 * * *' # هر دو ساعت یکبار
-  workflow_dispatch:
+    - cron: '0 */2 * * *' # هر دو ساعت یکبار اجرا می‌شود
+  workflow_dispatch:      # قابلیت اجرای دستی از تب Actions
 
 permissions:
-  contents: write
+  contents: write         # اجازه لازم برای آپلود فایل‌های sub.txt
 
 jobs:
   run-bot:
@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # برای جلوگیری از مشکلات تداخل در Push، کل تاریخچه را دریافت می‌کند
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -21,7 +23,8 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install telethon jdatetime tzdata aiohttp
+        run: |
+          pip install telethon jdatetime tzdata aiohttp
 
       - name: Run Collector
         env:
@@ -34,6 +37,11 @@ jobs:
         run: |
           git config --global user.name "IranCheckBot"
           git config --global user.email "bot@github.com"
+          
+          # دریافت آخرین تغییرات احتمالی از سرور برای رفع ارور Rejected
+          git pull origin main --rebase
+          
           git add sub.txt sub_raw.txt
-          git commit -m "Update Iran-Working Configs: $(date)" || echo "No changes"
-          git push
+          
+          # فقط اگر فایلی تغییر کرده بود کامیت انجام شود تا ارور ندهد
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Iran-Working Configs: $(date)" && git push origin main)
