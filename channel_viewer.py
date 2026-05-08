@@ -93,7 +93,7 @@ HTML_TEMPLATE = """
 async def main():
     """ تابع اصلی برای اتصال به تلگرام و واکشی پیام‌ها """
     content_html = ""
-    channel_title = CHANNEL_ID  # مقدار پیش‌فرض
+    channel_title = irankhodro0211  # مقدار پیش‌فرض
 
     async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH) as client:
         try:
