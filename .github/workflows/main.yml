@@ -1,9 +1,9 @@
-name: V2Ray Collector
+name: V2Ray Collector & SpeedTester
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch:
+    - cron: '*/30 * * * *' # اجرا در هر ۳۰ دقیقه
+  workflow_dispatch: # قابلیت اجرای دستی
 
 permissions:
   contents: write
@@ -26,7 +26,7 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run collector script
+      - name: Run collector and tester script
         env:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           API_ID: ${{ secrets.API_ID }}
@@ -37,12 +37,14 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          # تغییر کلیدی: اضافه کردن تمام فایل‌هایی که با sub شروع و به txt ختم میشن
-          git add sub*.txt
           
+          # اضافه کردن هر دو فایل به استیج گیت
+          git add sub.txt sub_raw.txt
+          
+          # بررسی تغییرات برای جلوگیری از ارور empty commit
           if git diff --staged --quiet; then
-            echo "تغییری در کانفیگ‌ها یافت نشد."
+            echo "تغییری در کانفیگ‌های پرسرعت یافت نشد."
           else
-            git commit -m "Update Configs: $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Update & Filtered by Speed: $(date +'%Y-%m-%d %H:%M')"
             git push --force
           fi
