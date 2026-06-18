@@ -5,6 +5,11 @@ on:
     - cron: '*/30 * * * *' # اجرا در هر ۳۰ دقیقه
   workflow_dispatch: # قابلیت اجرای دستی
 
+# جلوگیری از اجرای موازی (بسیار مهم برای حالت سخت‌گیرانه)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -38,12 +43,10 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           
-          # اضافه کردن هر دو فایل به استیج گیت
           git add sub.txt sub_raw.txt
           
-          # بررسی تغییرات برای جلوگیری از ارور empty commit
           if git diff --staged --quiet; then
-            echo "تغییری در کانفیگ‌های پرسرعت یافت نشد."
+            echo "No fast configs found or tested successfully. Skipping commit."
           else
             git commit -m "Update & Filtered by Speed: $(date +'%Y-%m-%d %H:%M')"
             git push --force
