@@ -158,7 +158,7 @@ async def main():
                             if final_conf:
                                 all_normal.append(final_conf)
                                 # در اینجا می‌توانید به جای mci.ircf.space، ساب‌دامین اختصاصی خودتان را بگذارید
-                                all_mci.append(apply_clean_ip(final_conf, "mci.mr-checkup.ir"))
+                                all_mci.append(apply_clean_ip(final_conf, "162.159.92.122"))
                                 all_mtn.append(apply_clean_ip(final_conf, "mtn.mr-checkup.ir"))
                 
                 print(f"   found {len(all_normal)} configs so far...")
