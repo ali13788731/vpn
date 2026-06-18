@@ -3,7 +3,11 @@ import re
 import base64
 import asyncio
 import random
-import json
+import subprocess
+import tarfile
+import urllib.request
+import glob
+import shutil
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import jdatetime
@@ -23,7 +27,7 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = ['napsternetv']
 SEARCH_LIMIT = 500  # تعداد پیام برای بررسی در هر کانال
-TOTAL_FINAL_COUNT = 150 # تعداد نهایی کانفیگ‌ها
+TOTAL_FINAL_COUNT = 150  # تعداد نهایی سریع‌ترین کانفیگ‌ها
 
 def get_persian_time():
     try:
@@ -35,49 +39,10 @@ def get_persian_time():
         print(f"⚠️ Time Error: {e}")
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-def apply_clean_ip(conf, clean_ip):
-    """
-    آی‌پی/دامنه اصلی کانفیگ را با آی‌پی تمیز جایگزین می‌کند.
-    """
-    if conf.startswith("vmess://"):
-        try:
-            base64_str = conf[8:]
-            # اصلاح پدینگ Base64 در صورت نیاز
-            base64_str += "=" * ((4 - len(base64_str) % 4) % 4)
-            json_str = base64.b64decode(base64_str).decode('utf-8')
-            data = json.loads(json_str)
-            
-            # ذخیره آدرس قبلی در sni (اگر خالی بود) برای حفظ اتصال
-            if not data.get('sni') and data.get('host'):
-                data['sni'] = data.get('host')
-                
-            data['add'] = clean_ip
-            new_base64 = base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
-            return f"vmess://{new_base64}"
-        except Exception:
-            return conf
-    else:
-        try:
-            parsed = urlparse(conf)
-            if '@' in parsed.netloc:
-                userinfo, host_port = parsed.netloc.split('@', 1)
-                if ':' in host_port:
-                    host, port = host_port.split(':', 1)
-                    new_netloc = f"{userinfo}@{clean_ip}:{port}"
-                else:
-                    new_netloc = f"{userinfo}@{clean_ip}"
-            else:
-                new_netloc = parsed.netloc
-
-            new_parsed = parsed._replace(netloc=new_netloc)
-            return urlunparse(new_parsed)
-        except Exception:
-            return conf
-
 def add_name_to_config(conf, time_tag):
+    """ نام کانفیگ را اصولی تغییر می‌دهد. """
     conf = conf.strip()
     if conf.startswith("vmess://"):
-        # برای تغییر نام vmess باید دیکود شود (در این نسخه ساده‌سازی شده نام vmess تغییر نمی‌کند)
         return conf
 
     try:
@@ -98,22 +63,51 @@ def add_name_to_config(conf, time_tag):
     except Exception:
         return conf
 
-def save_configs(filename, configs):
-    """
-    تابع کمکی برای ذخیره کردن کانفیگ‌ها در دو فرمت خام و انکود شده
-    """
-    if not configs:
-        return
+def download_litespeedtest():
+    """ دانلود خودکار ابزار تست سرعت مخصوص لینوکس ۶۴ بیت برای گیت‌هاب اکشن """
+    if os.path.exists("./liteSpeedTest"):
+        return True
     
-    content_str = "\n".join(configs)
-    encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+    print("📥 Downloading liteSpeedTest binary...")
+    url = "https://github.com/anywlan/liteSpeedTest/releases/download/v0.15.1/liteSpeedTest_linux_amd64.tar.gz"
+    try:
+        urllib.request.urlretrieve(url, "litespeedtest.tar.gz")
+        with tarfile.open("litespeedtest.tar.gz", "r:gz") as tar:
+            tar.extractall(path=".")
+        os.chmod("./liteSpeedTest", 0o755)
+        print("✅ liteSpeedTest ready.")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to download tester binary: {e}")
+        return False
+
+def get_litespeedtest_output_links():
+    """ استخراج لینک‌های تست شده و مرتب شده بر اساس سرعت از پوشه خروجی ابزار """
+    txt_files = glob.glob("output/*.txt") + glob.glob("*.txt")
+    exclude = ["raw_collected.txt", "sub.txt", "sub_raw.txt", "requirements.txt"]
+    valid_files = [f for f in txt_files if os.path.basename(f) not in exclude]
     
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(encoded)
-        
-    raw_filename = filename.replace(".txt", "_raw.txt")
-    with open(raw_filename, "w", encoding="utf-8") as f:
-        f.write(content_str)
+    if not valid_files:
+        return []
+    
+    latest_file = max(valid_files, key=os.path.getmtime)
+    print(f"📖 Reading speed test results from: {latest_file}")
+    
+    try:
+        with open(latest_file, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            try:
+                # اضافه کردن پدینگ برای جلوگیری از خطای base64
+                padded_content = content + "=" * (-len(content) % 4)
+                decoded = base64.b64decode(padded_content).decode('utf-8')
+                links = decoded.splitlines()
+            except Exception:
+                links = content.splitlines()
+            
+            return [line.strip() for line in links if line.strip() and "://" in line]
+    except Exception as e:
+        print(f"❌ Error reading speed test output: {e}")
+        return []
 
 async def main():
     if not SESSION_STRING:
@@ -137,9 +131,7 @@ async def main():
 
         print("✅ Logged in successfully.")
         
-        all_normal = []
-        all_mci = []
-        all_mtn = []
+        all_raw_configs = []
         time_tag = get_persian_time()
         print(f"⏰ Persian Time: {time_tag}")
 
@@ -153,36 +145,79 @@ async def main():
                         for conf in links:
                             conf = re.split(r'[\s\n]+', conf)[0]
                             conf = re.sub(r'[)\]}"\'>,]+$', '', conf)
-                            
-                            final_conf = add_name_to_config(conf, time_tag)
-                            if final_conf:
-                                all_normal.append(final_conf)
-                                # در اینجا می‌توانید به جای mci.ircf.space، ساب‌دامین اختصاصی خودتان را بگذارید
-                                all_mci.append(apply_clean_ip(final_conf, "162.159.92.122"))
-                                all_mtn.append(apply_clean_ip(final_conf, "mtn.mr-checkup.ir"))
+                            if conf:
+                                all_raw_configs.append(conf)
                 
-                print(f"   found {len(all_normal)} configs so far...")
+                print(f"   Found {len(all_raw_configs)} configs so far...")
                 await asyncio.sleep(random.randint(2, 5))
 
             except Exception as e:
                 print(f"⚠️ Error scanning {channel}: {e}")
 
-        # حذف تکراری‌ها
-        valid_normal = list(dict.fromkeys(all_normal))[:TOTAL_FINAL_COUNT]
-        valid_mci = list(dict.fromkeys(all_mci))[:TOTAL_FINAL_COUNT]
-        valid_mtn = list(dict.fromkeys(all_mtn))[:TOTAL_FINAL_COUNT]
+        # حذف تکراری‌ها قبل از تست
+        unique_raw_configs = list(dict.fromkeys(all_raw_configs))
+        print(f"🔍 Unique configs collected for testing: {len(unique_raw_configs)}")
 
-        if valid_normal:
-            save_configs("sub.txt", valid_normal)
-            save_configs("sub_mci.txt", valid_mci)
-            save_configs("sub_mtn.txt", valid_mtn)
-            print(f"✨ Success! Saved 3 types of configs (Normal, MCI, MTN).")
+        fastest_configs = []
+
+        if unique_raw_configs:
+            # ذخیره موقت کانفیگ‌ها برای ابزار تست سرعت
+            temp_input = "raw_collected.txt"
+            with open(temp_input, "w", encoding="utf-8") as f:
+                f.write("\n".join(unique_raw_configs))
+            
+            # دانلود و اجرای تست سرعت
+            if download_litespeedtest():
+                print("⚡ Executing Speed Test (Downloading test files through proxies)...")
+                try:
+                    # اجرای موازی تست سرعت (به صورت پیش‌فرض فایل چند مگابایتی برای تست دانلود می‌کند)
+                    subprocess.run(["./liteSpeedTest", "-sub", temp_input], capture_output=True, text=True, timeout=300)
+                    fastest_configs = get_litespeedtest_output_links()
+                except subprocess.TimeoutExpired:
+                    print("⚠️ Speed test timed out.")
+                except Exception as e:
+                    print(f"⚠️ Speed test error: {e}")
+
+            # مکانیزم پشتبان (Fallback) در صورت بروز خطا در تست سرعت
+            if not fastest_configs:
+                print("⚠️ Speed test returned 0 results. Using fallback (First N raw configs)...")
+                fastest_configs = unique_raw_configs[:TOTAL_FINAL_COUNT]
+            else:
+                print(f"✅ Speed test finished. Filtered & Sorted top {len(fastest_configs)} configs.")
+                fastest_configs = fastest_configs[:TOTAL_FINAL_COUNT]
+
+        # اعمال نام‌گذاری و تگ زمانی روی کانفیگ‌های گلچین شده نهایی
+        final_processed_configs = []
+        for conf in fastest_configs:
+            final_conf = add_name_to_config(conf, time_tag)
+            if final_conf:
+                final_processed_configs.append(final_conf)
+
+        # ذخیره‌سازی خروجی‌ها
+        if final_processed_configs:
+            content_str = "\n".join(final_processed_configs)
+            encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+            
+            with open("sub.txt", "w", encoding="utf-8") as f:
+                f.write(encoded)
+            
+            with open("sub_raw.txt", "w", encoding="utf-8") as f:
+                f.write(content_str)
+
+            print(f"✨ Success! Saved {len(final_processed_configs)} working & fastest configs.")
         else:
-            print("⚠️ No configs found.")
+            print("⚠️ No configs found to save.")
 
     except Exception as e:
         print(f"⚠️ Critical Error: {e}")
     finally:
+        # تمیزکاری فایل‌های موقت هارد دیسک گیت‌هاب اکشن
+        for temp_file in ["raw_collected.txt", "litespeedtest.tar.gz", "liteSpeedTest"]:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        if os.path.exists("output") and os.path.isdir("output"):
+            shutil.rmtree("output")
+            
         await client.disconnect()
 
 if __name__ == '__main__':
