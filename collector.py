@@ -1,6 +1,7 @@
 import os
 import re
 import base64
+import json
 import asyncio
 import random
 import subprocess
@@ -27,7 +28,7 @@ SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = ['napsternetv']
 SEARCH_LIMIT = 500  # تعداد پیام برای بررسی در هر کانال
-TOTAL_FINAL_COUNT = 150  # تعداد نهایی سریع‌ترین کانفیگ‌ها
+TOTAL_FINAL_COUNT = 150  # تعداد نهایی کانفیگ‌ها
 
 def get_persian_time():
     try:
@@ -39,23 +40,49 @@ def get_persian_time():
         print(f"⚠️ Time Error: {e}")
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-def add_name_to_config(conf, time_tag):
-    """ نام کانفیگ را اصولی تغییر می‌دهد. """
+def add_name_to_config(conf, time_tag, is_top_20=False):
+    """
+    نام کانفیگ را اصولی تغییر می‌دهد.
+    اگر کانفیگ جزو ۲۰تای اول باشد، عبارت 'پر سرعت' را اضافه می‌کند.
+    """
     conf = conf.strip()
-    if conf.startswith("vmess://"):
-        return conf
+    prefix = "🚀 پر سرعت | " if is_top_20 else ""
 
+    # مدیریت کانفیگ‌های VMess (دیکود کردن ساختار JSON Base64)
+    if conf.startswith("vmess://"):
+        try:
+            b64_part = conf[8:].strip()
+            b64_part += "=" * (-len(b64_part) % 4)  # رفع خطای پدینگ احتمالی
+            decoded = base64.b64decode(b64_part).decode('utf-8')
+            data = json.loads(decoded)
+            current_name = data.get("ps", "").strip()
+            
+            if not current_name:
+                new_name = f"{prefix}{time_tag}"
+            else:
+                if time_tag not in current_name:
+                    new_name = f"{prefix}{current_name} | {time_tag}"
+                else:
+                    new_name = f"{prefix}{current_name}"
+            
+            data["ps"] = new_name
+            new_b64 = base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
+            return f"vmess://{new_b64}"
+        except Exception:
+            return conf
+
+    # مدیریت سایر پروتکل‌ها (VLESS, Trojan, ShadowSocks و غیره)
     try:
         parsed = urlparse(conf)
         current_name = unquote(parsed.fragment).strip()
         
         if not current_name:
-            new_name = f"@{time_tag}"
+            new_name = f"{prefix}@{time_tag}"
         else:
             if time_tag not in current_name:
-                new_name = f"{current_name} | {time_tag}"
+                new_name = f"{prefix}{current_name} | {time_tag}"
             else:
-                new_name = current_name
+                new_name = f"{prefix}{current_name}"
 
         final_fragment = quote(new_name)
         new_parsed = parsed._replace(fragment=final_fragment)
@@ -97,7 +124,6 @@ def get_litespeedtest_output_links():
         with open(latest_file, "r", encoding="utf-8") as f:
             content = f.read().strip()
             try:
-                # اضافه کردن پدینگ برای جلوگیری از خطای base64
                 padded_content = content + "=" * (-len(content) % 4)
                 decoded = base64.b64decode(padded_content).decode('utf-8')
                 links = decoded.splitlines()
@@ -154,23 +180,19 @@ async def main():
             except Exception as e:
                 print(f"⚠️ Error scanning {channel}: {e}")
 
-        # حذف تکراری‌ها قبل از تست
         unique_raw_configs = list(dict.fromkeys(all_raw_configs))
         print(f"🔍 Unique configs collected for testing: {len(unique_raw_configs)}")
 
         fastest_configs = []
 
         if unique_raw_configs:
-            # ذخیره موقت کانفیگ‌ها برای ابزار تست سرعت
             temp_input = "raw_collected.txt"
             with open(temp_input, "w", encoding="utf-8") as f:
                 f.write("\n".join(unique_raw_configs))
             
-            # دانلود و اجرای تست سرعت
             if download_litespeedtest():
                 print("⚡ Executing Speed Test (Downloading test files through proxies)...")
                 try:
-                    # اجرای موازی تست سرعت (به صورت پیش‌فرض فایل چند مگابایتی برای تست دانلود می‌کند)
                     subprocess.run(["./liteSpeedTest", "-sub", temp_input], capture_output=True, text=True, timeout=300)
                     fastest_configs = get_litespeedtest_output_links()
                 except subprocess.TimeoutExpired:
@@ -178,22 +200,21 @@ async def main():
                 except Exception as e:
                     print(f"⚠️ Speed test error: {e}")
 
-            # مکانیزم پشتبان (Fallback) در صورت بروز خطا در تست سرعت
             if not fastest_configs:
-                print("⚠️ Speed test returned 0 results. Using fallback (First N raw configs)...")
+                print("⚠️ Speed test returned 0 results. Using fallback...")
                 fastest_configs = unique_raw_configs[:TOTAL_FINAL_COUNT]
             else:
                 print(f"✅ Speed test finished. Filtered & Sorted top {len(fastest_configs)} configs.")
                 fastest_configs = fastest_configs[:TOTAL_FINAL_COUNT]
 
-        # اعمال نام‌گذاری و تگ زمانی روی کانفیگ‌های گلچین شده نهایی
+        # اعمال نام‌گذاری و برچسب زدن به ۲۰تای اول
         final_processed_configs = []
-        for conf in fastest_configs:
-            final_conf = add_name_to_config(conf, time_tag)
+        for idx, conf in enumerate(fastest_configs):
+            is_top_20 = (idx < 20)  # بررسی اینکه آیا جزو ۲۰ کانفیگ اول (سریع‌ترین‌ها) است یا خیر
+            final_conf = add_name_to_config(conf, time_tag, is_top_20=is_top_20)
             if final_conf:
                 final_processed_configs.append(final_conf)
 
-        # ذخیره‌سازی خروجی‌ها
         if final_processed_configs:
             content_str = "\n".join(final_processed_configs)
             encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
@@ -204,7 +225,7 @@ async def main():
             with open("sub_raw.txt", "w", encoding="utf-8") as f:
                 f.write(content_str)
 
-            print(f"✨ Success! Saved {len(final_processed_configs)} working & fastest configs.")
+            print(f"✨ Success! Saved {len(final_processed_configs)} working configs (Top 20 highlighted).")
         else:
             print("⚠️ No configs found to save.")
 
