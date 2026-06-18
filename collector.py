@@ -1,7 +1,6 @@
 import os
 import re
 import base64
-import json
 import asyncio
 import random
 import subprocess
@@ -27,8 +26,8 @@ API_HASH = raw_api_hash if raw_api_hash and raw_api_hash.strip() else "6f3350e04
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
 CHANNELS = ['napsternetv']
-SEARCH_LIMIT = 500  # تعداد پیام برای بررسی در هر کانال
-TOTAL_FINAL_COUNT = 150  # تعداد نهایی کانفیگ‌ها
+SEARCH_LIMIT = 500  # تعداد پیام
+TOTAL_FINAL_COUNT = 150  # تعداد نهایی
 
 def get_persian_time():
     try:
@@ -40,49 +39,22 @@ def get_persian_time():
         print(f"⚠️ Time Error: {e}")
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-def add_name_to_config(conf, time_tag, is_top_20=False):
-    """
-    نام کانفیگ را اصولی تغییر می‌دهد.
-    اگر کانفیگ جزو ۲۰تای اول باشد، عبارت 'پر سرعت' را اضافه می‌کند.
-    """
+def add_name_to_config(conf, time_tag):
     conf = conf.strip()
-    prefix = "🚀 پر سرعت | " if is_top_20 else ""
-
-    # مدیریت کانفیگ‌های VMess (دیکود کردن ساختار JSON Base64)
     if conf.startswith("vmess://"):
-        try:
-            b64_part = conf[8:].strip()
-            b64_part += "=" * (-len(b64_part) % 4)  # رفع خطای پدینگ احتمالی
-            decoded = base64.b64decode(b64_part).decode('utf-8')
-            data = json.loads(decoded)
-            current_name = data.get("ps", "").strip()
-            
-            if not current_name:
-                new_name = f"{prefix}{time_tag}"
-            else:
-                if time_tag not in current_name:
-                    new_name = f"{prefix}{current_name} | {time_tag}"
-                else:
-                    new_name = f"{prefix}{current_name}"
-            
-            data["ps"] = new_name
-            new_b64 = base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
-            return f"vmess://{new_b64}"
-        except Exception:
-            return conf
+        return conf # Vmess نیاز به دیکود Base64 دارد، تغییر نام ساده لینک ساختار آن را خراب می‌کند
 
-    # مدیریت سایر پروتکل‌ها (VLESS, Trojan, ShadowSocks و غیره)
     try:
         parsed = urlparse(conf)
         current_name = unquote(parsed.fragment).strip()
         
         if not current_name:
-            new_name = f"{prefix}@{time_tag}"
+            new_name = f"@{time_tag}"
         else:
             if time_tag not in current_name:
-                new_name = f"{prefix}{current_name} | {time_tag}"
+                new_name = f"{current_name} | {time_tag}"
             else:
-                new_name = f"{prefix}{current_name}"
+                new_name = current_name
 
         final_fragment = quote(new_name)
         new_parsed = parsed._replace(fragment=final_fragment)
@@ -91,7 +63,6 @@ def add_name_to_config(conf, time_tag, is_top_20=False):
         return conf
 
 def download_litespeedtest():
-    """ دانلود خودکار ابزار تست سرعت مخصوص لینوکس ۶۴ بیت برای گیت‌هاب اکشن """
     if os.path.exists("./liteSpeedTest"):
         return True
     
@@ -109,7 +80,6 @@ def download_litespeedtest():
         return False
 
 def get_litespeedtest_output_links():
-    """ استخراج لینک‌های تست شده و مرتب شده بر اساس سرعت از پوشه خروجی ابزار """
     txt_files = glob.glob("output/*.txt") + glob.glob("*.txt")
     exclude = ["raw_collected.txt", "sub.txt", "sub_raw.txt", "requirements.txt"]
     valid_files = [f for f in txt_files if os.path.basename(f) not in exclude]
@@ -130,7 +100,9 @@ def get_litespeedtest_output_links():
             except Exception:
                 links = content.splitlines()
             
-            return [line.strip() for line in links if line.strip() and "://" in line]
+            # فیلتر سخت‌گیرانه: فقط خطوطی که شامل پروتکل معتبر هستند
+            valid_protocols = ("vmess://", "vless://", "ss://", "trojan://", "tuic://", "hysteria://", "hysteria2://")
+            return [line.strip() for line in links if line.strip().startswith(valid_protocols)]
     except Exception as e:
         print(f"❌ Error reading speed test output: {e}")
         return []
@@ -166,11 +138,10 @@ async def main():
             try:
                 async for message in client.iter_messages(channel, limit=SEARCH_LIMIT):
                     if message.text:
-                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[^\s\t\n]+', message.text)
+                        # Regex سخت‌گیرانه‌تر برای جلوگیری از گرفتن کاراکترهای فارسی یا نامعتبر در انتهای لینک
+                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[a-zA-Z0-9\-\.\_\~\:\/\?\#\[\]\@\!\$\&\'\(\)\*\+\,\;\=\%]+', message.text)
                         
                         for conf in links:
-                            conf = re.split(r'[\s\n]+', conf)[0]
-                            conf = re.sub(r'[)\]}"\'>,]+$', '', conf)
                             if conf:
                                 all_raw_configs.append(conf)
                 
@@ -191,27 +162,28 @@ async def main():
                 f.write("\n".join(unique_raw_configs))
             
             if download_litespeedtest():
-                print("⚡ Executing Speed Test (Downloading test files through proxies)...")
+                print("⚡ Executing Speed Test (Strict Mode - Wait up to 15 mins)...")
                 try:
-                    subprocess.run(["./liteSpeedTest", "-sub", temp_input], capture_output=True, text=True, timeout=300)
+                    # افزایش زمان به 900 ثانیه (۱۵ دقیقه) برای اطمینان از تست کامل
+                    subprocess.run(["./liteSpeedTest", "-sub", temp_input], capture_output=True, text=True, timeout=900)
                     fastest_configs = get_litespeedtest_output_links()
                 except subprocess.TimeoutExpired:
-                    print("⚠️ Speed test timed out.")
+                    print("⚠️ Speed test timed out after 15 minutes. Attempting to extract partial results...")
+                    fastest_configs = get_litespeedtest_output_links()
                 except Exception as e:
                     print(f"⚠️ Speed test error: {e}")
 
+            # حالت سخت‌گیرانه: بدون Fallback به کانفیگ‌های تست نشده!
             if not fastest_configs:
-                print("⚠️ Speed test returned 0 results. Using fallback...")
-                fastest_configs = unique_raw_configs[:TOTAL_FINAL_COUNT]
-            else:
-                print(f"✅ Speed test finished. Filtered & Sorted top {len(fastest_configs)} configs.")
-                fastest_configs = fastest_configs[:TOTAL_FINAL_COUNT]
+                print("❌ Strict Mode Triggered: No working configs passed the speed test. Aborting update to keep previous good configs intact.")
+                return  # خروج از برنامه بدون بازنویسی فایل‌ها
 
-        # اعمال نام‌گذاری و برچسب زدن به ۲۰تای اول
+            print(f"✅ Speed test finished. Filtered & Sorted top {len(fastest_configs)} configs.")
+            fastest_configs = fastest_configs[:TOTAL_FINAL_COUNT]
+
         final_processed_configs = []
-        for idx, conf in enumerate(fastest_configs):
-            is_top_20 = (idx < 20)  # بررسی اینکه آیا جزو ۲۰ کانفیگ اول (سریع‌ترین‌ها) است یا خیر
-            final_conf = add_name_to_config(conf, time_tag, is_top_20=is_top_20)
+        for conf in fastest_configs:
+            final_conf = add_name_to_config(conf, time_tag)
             if final_conf:
                 final_processed_configs.append(final_conf)
 
@@ -225,14 +197,13 @@ async def main():
             with open("sub_raw.txt", "w", encoding="utf-8") as f:
                 f.write(content_str)
 
-            print(f"✨ Success! Saved {len(final_processed_configs)} working configs (Top 20 highlighted).")
+            print(f"✨ Success! Saved {len(final_processed_configs)} working & fastest configs.")
         else:
             print("⚠️ No configs found to save.")
 
     except Exception as e:
         print(f"⚠️ Critical Error: {e}")
     finally:
-        # تمیزکاری فایل‌های موقت هارد دیسک گیت‌هاب اکشن
         for temp_file in ["raw_collected.txt", "litespeedtest.tar.gz", "liteSpeedTest"]:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
