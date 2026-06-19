@@ -26,8 +26,8 @@ API_HASH = raw_api_hash if raw_api_hash and raw_api_hash.strip() else "6f3350e04
 
 SESSION_STRING = os.environ.get("SESSION_STRING")
 
-CHANNELS = ['napsternetv']
-SEARCH_LIMIT = 500  # تعداد پیام
+CHANNELS = ['napsternetv', 'v2ray_configs_channel', 'other_channel'] # کانال‌های بیشتری اضافه کنید
+SEARCH_LIMIT = 2000  
 TOTAL_FINAL_COUNT = 150  # تعداد نهایی
 
 def get_persian_time():
