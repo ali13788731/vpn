@@ -7,6 +7,7 @@ import subprocess
 import tarfile
 import urllib.request
 import glob
+import gzip
 import shutil
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -67,11 +68,13 @@ def download_litespeedtest():
         return True
     
     print("📥 Downloading liteSpeedTest binary...")
-    url = "https://github.com/anywlan/liteSpeedTest/releases/download/v0.15.1/liteSpeedTest_linux_amd64.tar.gz"
+    url = "https://github.com/xxf098/LiteSpeedTest/releases/download/v0.15.0/lite-linux-amd64-v0.15.0.gz"
     try:
-        urllib.request.urlretrieve(url, "litespeedtest.tar.gz")
-        with tarfile.open("litespeedtest.tar.gz", "r:gz") as tar:
-            tar.extractall(path=".")
+        urllib.request.urlretrieve(url, "litespeedtest.gz")
+        with gzip.open("litespeedtest.gz", "rb") as f_in:
+            with open("./liteSpeedTest", "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        
         os.chmod("./liteSpeedTest", 0o755)
         print("✅ liteSpeedTest ready.")
         return True
