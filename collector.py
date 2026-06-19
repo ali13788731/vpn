@@ -168,7 +168,7 @@ async def main():
                 print("⚡ Executing Speed Test (Strict Mode - Wait up to 15 mins)...")
                 try:
                     # افزایش زمان به 900 ثانیه (۱۵ دقیقه) برای اطمینان از تست کامل
-                    subprocess.run(["./liteSpeedTest", "-sub", temp_input], capture_output=True, text=True, timeout=900)
+                    subprocess.run(["./liteSpeedTest", "--test", temp_input], capture_output=True, text=True, timeout=900)
                     fastest_configs = get_litespeedtest_output_links()
                 except subprocess.TimeoutExpired:
                     print("⚠️ Speed test timed out after 15 minutes. Attempting to extract partial results...")
@@ -207,7 +207,7 @@ async def main():
     except Exception as e:
         print(f"⚠️ Critical Error: {e}")
     finally:
-        for temp_file in ["raw_collected.txt", "litespeedtest.tar.gz", "liteSpeedTest"]:
+        for temp_file in ["raw_collected.txt", "litespeedtest.gz", "liteSpeedTest"]:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
         if os.path.exists("output") and os.path.isdir("output"):
