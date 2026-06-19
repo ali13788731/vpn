@@ -183,6 +183,14 @@ async def main():
                         print(result.stderr[:1000])
                         
                     fastest_configs = get_litespeedtest_output_links()
+                except Exception as e:
+                    print(f"❌ Error during speed test execution: {e}")
+
+            # حالت سخت‌گیرانه: بدون Fallback به کانفیگ‌های تست نشده!
+            if not fastest_configs:
+                print("❌ Strict Mode Triggered: No working configs passed the speed test. Aborting update to keep previous good configs intact.")
+                return  # خروج از برنامه بدون بازنویسی فایل‌ها
+
 
             # حالت سخت‌گیرانه: بدون Fallback به کانفیگ‌های تست نشده!
             if not fastest_configs:
