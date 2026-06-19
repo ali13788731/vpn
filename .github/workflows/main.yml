@@ -1,14 +1,9 @@
-name: V2Ray Collector & SpeedTester
+name: V2Ray Collector
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # اجرا در هر ۳۰ دقیقه
-  workflow_dispatch: # قابلیت اجرای دستی
-
-# جلوگیری از اجرای موازی (بسیار مهم برای حالت سخت‌گیرانه)
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -31,7 +26,7 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run collector and tester script
+      - name: Run collector script
         env:
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
           API_ID: ${{ secrets.API_ID }}
@@ -42,12 +37,12 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          
           git add sub.txt sub_raw.txt
           
+          # چک کردن اینکه آیا فایلی تغییر کرده است یا خیر
           if git diff --staged --quiet; then
-            echo "No fast configs found or tested successfully. Skipping commit."
+            echo "⚠️ هیچ تغییر یا سرور زنده‌ای یافت نشد، کامیت انجام نمی‌شود."
           else
-            git commit -m "Update & Filtered by Speed: $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "🚀 Update Fastest Configs: $(date +'%Y-%m-%d %H:%M')"
             git push --force
           fi
