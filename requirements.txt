@@ -1,4 +1,3 @@
-telethon
-jdatetime
-python-socks[asyncio]
+Telethon==1.33.1
+jdatetime==4.1.1
 tzdata
