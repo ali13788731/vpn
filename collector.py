@@ -29,7 +29,7 @@ CHANNELS_CONFIG = {
     'V2rayngvpn': (200, 50),   # می‌تونی کانال‌های دیگه رو با تنظیمات متفاوت اینجا اضافه کنی
 }
 
-TOTAL_FINAL_COUNT = 150 # حداکثر کانفیگ‌های نهایی بعد از تست پینگ
+TOTAL_FINAL_COUNT = sum(config[1] for config in CHANNELS_CONFIG.values())
 PING_TIMEOUT = 3.0 # حداکثر زمان انتظار برای پینگ (ثانیه)
 
 def get_persian_time():
