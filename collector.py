@@ -167,14 +167,22 @@ async def main():
             if download_litespeedtest():
                 print("⚡ Executing Speed Test (Strict Mode - Wait up to 15 mins)...")
                 try:
-                    # افزایش زمان به 900 ثانیه (۱۵ دقیقه) برای اطمینان از تست کامل
-                    subprocess.run(["./liteSpeedTest", "--test", temp_input], capture_output=True, text=True, timeout=900)
+                    # ذخیره خروجی در یک متغیر برای بررسی
+                    result = subprocess.run(
+                        ["./liteSpeedTest", "--test", temp_input], 
+                        capture_output=True, 
+                        text=True, 
+                        timeout=900
+                    )
+                    
+                    # چاپ لاگ‌های ابزار تستر برای عیب‌یابی در گیت‌هاب اکشنز
+                    print("--- LiteSpeedTest STDOUT ---")
+                    print(result.stdout[:1500]) # چاپ ۱۵۰۰ کاراکتر اول
+                    if result.stderr:
+                        print("--- LiteSpeedTest STDERR ---")
+                        print(result.stderr[:1000])
+                        
                     fastest_configs = get_litespeedtest_output_links()
-                except subprocess.TimeoutExpired:
-                    print("⚠️ Speed test timed out after 15 minutes. Attempting to extract partial results...")
-                    fastest_configs = get_litespeedtest_output_links()
-                except Exception as e:
-                    print(f"⚠️ Speed test error: {e}")
 
             # حالت سخت‌گیرانه: بدون Fallback به کانفیگ‌های تست نشده!
             if not fastest_configs:
