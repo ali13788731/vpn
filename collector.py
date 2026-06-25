@@ -43,38 +43,39 @@ def get_persian_time():
         return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 def add_name_to_config(conf, time_tag, latency=None):
-    """ نام کانفیگ را تغییر می‌دهد: اسم کوتاه... | پینگ | تاریخ و ساعت """
     conf = conf.strip()
-    
-    # برای vmess نیاز به دی‌کد و انکود مجدد جیسون است که اینجا رد می‌شویم
-    if conf.startswith("vmess://"):
-        return conf
+    ping_str = f"Ping: {int(latency*1000)}ms" if latency else "Ping: N/A"
 
+    # --- هندل کردن Vmess ---
+    if conf.startswith("vmess://"):
+        try:
+            b64_str = conf[8:]
+            # اصلاح پدینگ
+            b64_str += "=" * ((4 - len(b64_str) % 4) % 4)
+            # استفاده از urlsafe برای جلوگیری از خطاهای کاراکترهای خاص
+            decoded = base64.urlsafe_b64decode(b64_str).decode('utf-8')
+            data = json.loads(decoded)
+            
+            old_name = data.get('ps', 'Server')
+            short_name = old_name[:10] + "..." if len(old_name) > 10 else (old_name or "Server")
+            data['ps'] = f"{short_name} | {ping_str} | {time_tag}"
+            
+            new_b64 = base64.urlsafe_b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
+            return "vmess://" + new_b64
+        except Exception:
+            return conf
+
+    # --- هندل کردن سایر کانفیگ‌ها (Vless, Trojan و ...) ---
     try:
         parsed = urlparse(conf)
         current_name = unquote(parsed.fragment).strip()
-        
-        # ۱. مرتب‌سازی و کوتاه کردن اسم
-        if current_name:
-            # نمایش حداکثر ۱۰ کاراکتر اول و افزودن سه نقطه
-            short_name = current_name[:10] + "..." if len(current_name) > 10 else current_name
-        else:
-            # اگر کانفیگ اصلا اسمی نداشت
-            short_name = "Server" 
-
-        # ۲. آماده‌سازی بخش پینگ
-        ping_str = f"Ping: {int(latency*1000)}ms" if latency else "Ping: N/A"
-
-        # ۳. ترکیب نهایی با فرمت دلخواه شما
-        # خروجی نمونه: MyServerVa... | Ping: 120ms | 2026-06-19 10:23
+        short_name = current_name[:10] + "..." if len(current_name) > 10 else (current_name or "Server")
         new_name = f"{short_name} | {ping_str} | {time_tag}"
-
+        
         final_fragment = quote(new_name)
         new_parsed = parsed._replace(fragment=final_fragment)
         return urlunparse(new_parsed)
-        
     except Exception:
-        # اگر خطایی رخ داد، همان کانفیگ اولیه را برگردان
         return conf
 
 def parse_host_port(conf):
