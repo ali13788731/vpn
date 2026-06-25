@@ -84,7 +84,7 @@ def parse_host_port(conf):
         if conf.startswith('vmess://'):
             b64_str = conf[8:]
             b64_str += "=" * ((4 - len(b64_str) % 4) % 4)
-            decoded = base64.b64decode(b64_str).decode('utf-8')
+            decoded = base64.urlsafe_b64decode(b64_str).decode('utf-8')
             data = json.loads(decoded)
             return data.get('add') or data.get('host'), int(data.get('port'))
         else:
