@@ -1,212 +1,47 @@
-import os
-import re
-import json
-import base64
 import asyncio
+import aiohttp
 import time
-import random
-from datetime import datetime
-from zoneinfo import ZoneInfo
-import jdatetime
-from urllib.parse import urlparse, urlunparse, quote, unquote
-from telethon import TelegramClient
-from telethon.sessions import StringSession
-from telethon.network import ConnectionTcpFull
+import os
 
-# --- تنظیمات اولیه ---
-raw_api_id = os.environ.get("API_ID")
-API_ID = int(raw_api_id) if raw_api_id and raw_api_id.strip() else 34146126
-
-raw_api_hash = os.environ.get("API_HASH")
-API_HASH = raw_api_hash if raw_api_hash and raw_api_hash.strip() else "6f3350e049ef37676b729241f5bc8c5e"
-
-SESSION_STRING = os.environ.get("SESSION_STRING")
-
-# تنظیمات پیشرفته کانال‌ها
-# فرمت: 'آیدی_کانال': (تعداد_پیام_برای_بررسی, حداکثر_خروجی_از_این_کانال)
-CHANNELS_CONFIG = {
-    'napsternetv': (500, 150),   # ۳۰۰ پیام آخر رو بگرد، نهایتاً ۲۰ کانفیگ خروجی بده
-    'V2rayngvpn': (200, 50),   # می‌تونی کانال‌های دیگه رو با تنظیمات متفاوت اینجا اضافه کنی
-}
-
-TOTAL_FINAL_COUNT = sum(config[1] for config in CHANNELS_CONFIG.values())
-PING_TIMEOUT = 3.0 # حداکثر زمان انتظار برای پینگ (ثانیه)
-
-def get_persian_time():
-    try:
-        tehran_tz = ZoneInfo("Asia/Tehran")
-        now_tehran = datetime.now(tehran_tz)
-        j_date = jdatetime.datetime.fromgregorian(datetime=now_tehran)
-        return j_date.strftime("%Y-%m-%d %H:%M")
-    except Exception as e:
-        print(f"⚠️ Time Error: {e}")
-        return datetime.now().strftime("%Y-%m-%d %H:%M")
-
-def add_name_to_config(conf, time_tag, latency=None):
-    conf = conf.strip()
-    ping_str = f"Ping: {int(latency*1000)}ms" if latency else "Ping: N/A"
-
-    # --- هندل کردن Vmess ---
-    if conf.startswith("vmess://"):
-        try:
-            b64_str = conf[8:]
-            # اصلاح پدینگ
-            b64_str += "=" * ((4 - len(b64_str) % 4) % 4)
-            # استفاده از urlsafe برای جلوگیری از خطاهای کاراکترهای خاص
-            decoded = base64.urlsafe_b64decode(b64_str).decode('utf-8')
-            data = json.loads(decoded)
-            
-            old_name = data.get('ps', 'Server')
-            short_name = old_name[:10] + "..." if len(old_name) > 10 else (old_name or "Server")
-            data['ps'] = f"{short_name} | {ping_str} | {time_tag}"
-            
-            new_b64 = base64.urlsafe_b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
-            return "vmess://" + new_b64
-        except Exception:
-            return conf
-
-    # --- هندل کردن سایر کانفیگ‌ها (Vless, Trojan و ...) ---
-    try:
-        parsed = urlparse(conf)
-        current_name = unquote(parsed.fragment).strip()
-        short_name = current_name[:10] + "..." if len(current_name) > 10 else (current_name or "Server")
-        new_name = f"{short_name} | {ping_str} | {time_tag}"
-        
-        final_fragment = quote(new_name)
-        new_parsed = parsed._replace(fragment=final_fragment)
-        return urlunparse(new_parsed)
-    except Exception:
-        return conf
-
-def parse_host_port(conf):
-    """ استخراج IP و Port از کانفیگ برای تست پینگ """
-    try:
-        if conf.startswith('vmess://'):
-            b64_str = conf[8:]
-            b64_str += "=" * ((4 - len(b64_str) % 4) % 4)
-            decoded = base64.urlsafe_b64decode(b64_str).decode('utf-8')
-            data = json.loads(decoded)
-            return data.get('add') or data.get('host'), int(data.get('port'))
-        else:
-            parsed = urlparse(conf)
-            return parsed.hostname, parsed.port
-    except Exception:
-        return None, None
-
-async def test_tcp_latency(host, port, timeout=PING_TIMEOUT):
-    """ تست سرعت اتصال به سرور """
-    if not host or not port:
-        return float('inf')
-    try:
-        start_time = time.perf_counter()
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=timeout
-        )
-        writer.close()
-        await writer.wait_closed()
-        return time.perf_counter() - start_time
-    except Exception:
-        return float('inf')
-
-async def check_config_latency(conf, semaphore):
-    """ بررسی یک کانفیگ با کنترل همزمانی """
-    async with semaphore:
-        host, port = parse_host_port(conf)
-        latency = await test_tcp_latency(host, port)
-        return conf, latency
-
-async def main():
-    if not SESSION_STRING:
-        print("❌ SESSION_STRING Not Found! Please set it in GitHub Secrets.")
-        return
-
-    client = TelegramClient(
-        StringSession(SESSION_STRING),
-        API_ID,
-        API_HASH,
-        connection=ConnectionTcpFull
+async def test_real_connection(config_json_path, local_port=10808):
+    """
+    اجرای Xray و تست سرعت واقعی دانلود/پینگ با ارسال درخواست HTTP
+    """
+    # ۱. اجرای هسته Xray در پس‌زمینه
+    # فرض بر این است که فایل اجرایی xray در کنار اسکریپت شما قرار دارد
+    process = await asyncio.create_subprocess_exec(
+        './xray', 'run', '-c', config_json_path,
+        stdout=asyncio.subprocess.DEVNULL,  # مخفی کردن لاگ‌های اضافه
+        stderr=asyncio.subprocess.DEVNULL
     )
 
+    # ۲ ثانیه صبر می‌کنیم تا کانکشن با سرور برقرار شود
+    await asyncio.sleep(2)
+
+    start_time = time.time()
+    timeout = aiohttp.ClientTimeout(total=5) # حداکثر ۵ ثانیه مهلت برای تست
+    proxy_url = f"http://127.0.0.1:{local_port}"
+    real_ping = float('inf')
+
     try:
-        print("🚀 Connecting to Telegram...")
-        await client.connect()
-        
-        if not await client.is_user_authorized():
-            print("❌ Session is invalid or expired.")
-            return
-
-        print("✅ Logged in successfully.")
-        
-        all_raw_configs = []
-        time_tag = get_persian_time()
-        print(f"⏰ Persian Time: {time_tag}")
-
-        # مرحله 1: جمع‌آوری کانفیگ‌ها بر اساس تنظیمات هر کانال
-        for channel, (msg_limit, max_configs) in CHANNELS_CONFIG.items():
-            print(f"📡 Scanning @{channel} (Checking {msg_limit} msgs, Target: {max_configs} configs)...")
-            channel_configs = set() # استفاده از set برای جلوگیری از تکراری‌های همان کانال
-            try:
-                async for message in client.iter_messages(channel, limit=msg_limit):
-                    if message.text:
-                        links = re.findall(r'(?:vmess|vless|ss|trojan|tuic|hysteria2?)://[^\s\t\n]+', message.text)
-                        for conf in links:
-                            conf = re.split(r'[\s\n]+', conf)[0]
-                            conf = re.sub(r'[)\]}"\'>,]+$', '', conf)
-                            
-                            channel_configs.add(conf)
-                            
-                            # توقف استخراج اگر به سقف تعیین شده برای این کانال رسیدیم
-                            if len(channel_configs) >= max_configs:
-                                break
-                    
-                    if len(channel_configs) >= max_configs:
-                        break # شکستن حلقه پیام‌ها
-                
-                all_raw_configs.extend(list(channel_configs))
-                print(f"   ✅ Collected {len(channel_configs)} configs from {channel}.")
-                await asyncio.sleep(random.randint(2, 5))
-
-            except Exception as e:
-                print(f"⚠️ Error scanning {channel}: {e}")
-
-        # حذف تکراری‌های احتمالی بین کانال‌های مختلف
-        unique_configs = list(dict.fromkeys(all_raw_configs))
-        print(f"\n🔍 Testing {len(unique_configs)} unique configs for TCP latency...")
-
-        # مرحله 2: تست سرعت کانفیگ‌ها به صورت همزمان
-        semaphore = asyncio.Semaphore(50)
-        tasks = [check_config_latency(c, semaphore) for c in unique_configs]
-        results = await asyncio.gather(*tasks)
-
-        # مرحله 3: فیلتر کردن سرورهای زنده و مرتب‌سازی
-        alive_configs = [(conf, lat) for conf, lat in results if lat != float('inf')]
-        alive_configs.sort(key=lambda x: x[1]) # از سریع‌ترین به کندترین
-
-        print(f"✅ Found {len(alive_configs)} ALIVE configs.")
-
-        # انتخاب بهترین‌ها بر اساس محدودیت کل (TOTAL_FINAL_COUNT)
-        best_configs = alive_configs[:TOTAL_FINAL_COUNT]
-        final_valid_configs = [add_name_to_config(conf, time_tag, lat) for conf, lat in best_configs]
-
-        # مرحله 4: ذخیره‌سازی
-        if final_valid_configs:
-            content_str = "\n".join(final_valid_configs)
-            encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
-            
-            with open("sub.txt", "w", encoding="utf-8") as f:
-                f.write(encoded)
-            
-            with open("sub_raw.txt", "w", encoding="utf-8") as f:
-                f.write(content_str)
-
-            print(f"✨ Success! Saved top {len(final_valid_configs)} fastest configs.")
-        else:
-            print("⚠️ No working configs found.")
-
+        # ۲. ارسال درخواست از تونل پروکسی به سرور کلادفلر
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # از سایت‌های معتبر برای تست استفاده می‌کنیم
+            async with session.get("http://cp.cloudflare.com", proxy=proxy_url) as response:
+                if response.status == 204: 
+                    # 204 یعنی ارتباط کاملاً سالم است
+                    real_ping = (time.time() - start_time) * 1000 # تبدیل به میلی‌ثانیه
+                elif response.status == 200:
+                    real_ping = (time.time() - start_time) * 1000
     except Exception as e:
-        print(f"⚠️ Critical Error: {e}")
+        # اگر تایم‌اوت داد یا ارور شبکه داشت، یعنی سرور فیلتر یا خراب است
+        pass
     finally:
-        await client.disconnect()
+        # ۳. خاموش کردن هسته Xray برای آزاد شدن پورت
+        try:
+            process.terminate()
+            await process.wait()
+        except:
+            pass
 
-if __name__ == '__main__':
-    asyncio.run(main())
+    return real_ping
